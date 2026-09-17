@@ -1,0 +1,9 @@
+__pycache__/
+
+# Local-only AI assistant notes (lives in PersonalOS brain too — regenerable)
+CLAUDE.md
+.claude/
+
+# Testreste.
+.pytest_cache/
+.coverage

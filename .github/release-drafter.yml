@@ -1,0 +1,36 @@
+name-template: "v$RESOLVED_VERSION"
+tag-template: "v$RESOLVED_VERSION"
+
+categories:
+  - title: "🗂️ Anbieter"
+    labels: ["provider"]
+  - title: "✨ Neu"
+    labels: ["enhancement", "feature"]
+  - title: "🐛 Behoben"
+    labels: ["bug", "fix"]
+  - title: "🔐 Sicherheit"
+    labels: ["security"]
+  - title: "📖 Dokumentation"
+    labels: ["documentation"]
+  - title: "🧹 Wartung"
+    labels: ["chore", "dependencies"]
+
+exclude-labels: ["skip-changelog"]
+
+change-template: "- $TITLE (#$NUMBER)"
+no-changes-template: "- Keine nennenswerten Änderungen"
+
+version-resolver:
+  major:
+    labels: ["breaking"]
+  minor:
+    labels: ["enhancement", "feature", "provider"]
+  patch:
+    labels: ["bug", "fix", "chore", "documentation", "dependencies"]
+  default: patch
+
+template: |
+  $CHANGES
+
+  > Die Versionsnummer in `dnsmith/config.yaml` muss zu diesem Release passen,
+  > sonst bietet der Supervisor kein Update an.

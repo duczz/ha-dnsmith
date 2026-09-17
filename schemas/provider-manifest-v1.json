@@ -1,0 +1,899 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://dnsmith.dev/schemas/provider-manifest-v1.json",
+  "title": "DNSmith provider manifest",
+  "description": "One provider as DNSmith presents it. A manifest is the only thing the UI needs in order to render a provider's form, and for most providers it is also the only thing the updater needs in order to perform the update.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "id",
+    "name",
+    "engine",
+    "capabilities",
+    "fields"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": 1
+    },
+    "id": {
+      "description": "DNSmith's own identifier. Usually the same as engine.upstream_id, but it need not be: the upstream ID may change, this one must not.",
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_.-]*$"
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "description": {
+      "type": "string"
+    },
+    "website": {
+      "type": "string",
+      "format": "uri"
+    },
+    "categories": {
+      "description": "Drives the filters in the provider picker. A provider may sit in several.",
+      "type": "array",
+      "uniqueItems": true,
+      "items": {
+        "enum": [
+          "free_ddns",
+          "commercial_ddns",
+          "dns_provider",
+          "cloud_dns",
+          "registrar",
+          "german",
+          "ipv6_focused",
+          "dyndns2_compatible",
+          "generic"
+        ]
+      }
+    },
+    "popular": {
+      "description": "Shown in the picker's short list above the full catalogue.",
+      "type": "boolean",
+      "default": false
+    },
+    "engine": {
+      "type": "object",
+      "required": [
+        "adapter"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "adapter": {
+          "description": "Who performs the update. \"native\" means the declarative executor runs the request block below and no provider-specific code exists. \"python\" means a module under adapters/providers/ owns the flow, because the provider needs more than one step or a signature. \"unported\" is the transitional state: the provider is known, its form renders, but no updater backs it yet, so the UI offers it greyed out instead of pretending it works.",
+          "enum": [
+            "native",
+            "python",
+            "unported"
+          ]
+        },
+        "protocol": {
+          "description": "Which shape the native executor uses. \"http\" is a single request described entirely by the request block. \"dyndns2\" is the query-parameter protocol with its plain-text answer vocabulary; a named provider gives it a request block with a fixed endpoint, the generic one leaves it out because the user supplies the URL and the parameter names on the form. \"custom_http\" is the provider the user configures themselves and never has a request block.",
+          "enum": [
+            "dyndns2",
+            "http",
+            "custom_http"
+          ]
+        },
+        "module": {
+          "description": "Module name under adapters/providers/. Required for the python adapter.",
+          "type": "string",
+          "pattern": "^[a-z0-9_]+$"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "adapter": {
+                "const": "native"
+              }
+            },
+            "required": [
+              "adapter"
+            ]
+          },
+          "then": {
+            "required": [
+              "protocol"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "adapter": {
+                "const": "python"
+              }
+            },
+            "required": [
+              "adapter"
+            ]
+          },
+          "then": {
+            "required": [
+              "module"
+            ]
+          }
+        }
+      ]
+    },
+    "capabilities": {
+      "type": "object",
+      "required": [
+        "ipv4",
+        "ipv6"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "ipv4": {
+          "type": "boolean"
+        },
+        "ipv6": {
+          "type": "boolean"
+        },
+        "ipv6_suffix": {
+          "type": "boolean",
+          "default": false
+        },
+        "wildcard": {
+          "type": "boolean",
+          "default": false
+        },
+        "multiple_records": {
+          "description": "Whether several host names can share one record entry, comma separated.",
+          "type": "boolean",
+          "default": false
+        },
+        "ttl": {
+          "type": "boolean",
+          "default": false
+        },
+        "proxy": {
+          "type": "boolean",
+          "default": false
+        },
+        "txt_records": {
+          "description": "Whether this provider's API can set and remove TXT records. Not used in v1; it is what a later ACME/DNS-01 feature would switch on, and recording it while the provider is being written costs nothing.",
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    "rate_limit": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "note": {
+          "description": "Shown next to the update interval so the limit is visible where it matters.",
+          "type": "string"
+        },
+        "min_interval": {
+          "description": "Shortest interval DNSmith will allow for this provider, as a Go duration.",
+          "type": "string",
+          "pattern": "^[0-9]+(ms|s|m|h)$"
+        }
+      }
+    },
+    "auth": {
+      "description": "Alternative ways to authenticate. Without this, every field in \"fields\" is offered at once — which is wrong for providers such as Cloudflare, where three mutually exclusive credential styles exist.",
+      "type": "object",
+      "required": [
+        "one_of"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "one_of": {
+          "type": "array",
+          "minItems": 2,
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "label",
+              "fields"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[a-z0-9_]+$"
+              },
+              "label": {
+                "type": "string",
+                "minLength": 1
+              },
+              "fields": {
+                "description": "Field IDs that make up this variant. All of them are required when it is chosen.",
+                "type": "array",
+                "minItems": 1,
+                "items": {
+                  "type": "string"
+                }
+              },
+              "recommended": {
+                "type": "boolean",
+                "default": false
+              },
+              "deprecated": {
+                "type": "boolean",
+                "default": false
+              },
+              "hint": {
+                "description": "Shown with the variant. This is where the minimum-permission advice belongs — at the field, not in a manual.",
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "fields": {
+      "type": "array",
+      "minItems": 0,
+      "items": {
+        "$ref": "#/$defs/field"
+      }
+    },
+    "example": {
+      "description": "Placeholder values for the form, taken from the upstream documentation. Never real credentials.",
+      "type": "object",
+      "additionalProperties": {
+        "type": [
+          "string",
+          "number",
+          "boolean"
+        ]
+      }
+    },
+    "notes": {
+      "description": "Provider quirks worth telling the user before they hit them.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "generated": {
+      "description": "Provenance. Written by tools/manifest_merge.py, never by hand.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "generated_at": {
+          "type": "string"
+        },
+        "source": {
+          "description": "Where the content came from. Always providers/src/ since the rewrite.",
+          "enum": [
+            "src"
+          ]
+        }
+      }
+    },
+    "request": {
+      "description": "The call that writes the record. Present for every native provider and absent for every python one.",
+      "$ref": "#/$defs/request"
+    },
+    "lookup": {
+      "description": "Calls made before the update, each binding a value the update needs — a zone ID, a record ID. Steps run in order and may use what earlier steps bound. This is what lets a two-step API stay data rather than becoming a module.",
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 4,
+      "items": {
+        "type": "object",
+        "required": [
+          "url",
+          "select",
+          "into"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "url": {
+            "type": "string",
+            "description": "Template. {name} is replaced by a field value, a runtime value, or a value a lookup step bound."
+          },
+          "method": {
+            "enum": [
+              "GET",
+              "POST"
+            ],
+            "default": "GET"
+          },
+          "params": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string",
+              "description": "Template. {name} is replaced by a field value, a runtime value, or a value a lookup step bound."
+            }
+          },
+          "headers": {
+            "description": "Extra headers. The update's auth and headers are used unless overridden here.",
+            "type": "object",
+            "additionalProperties": {
+              "type": "string",
+              "description": "Template. {name} is replaced by a field value, a runtime value, or a value a lookup step bound."
+            }
+          },
+          "body_type": {
+            "enum": [
+              "none",
+              "json",
+              "form"
+            ],
+            "default": "none"
+          },
+          "body": {
+            "type": [
+              "object",
+              "array",
+              "string",
+              "null"
+            ]
+          },
+          "select": {
+            "description": "How to find the value in the answer.",
+            "type": "object",
+            "required": [
+              "take"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "path": {
+                "description": "Dotted path to the list (or object) in the answer. Omit for the answer itself.",
+                "type": "string"
+              },
+              "where": {
+                "description": "Field/value pairs the entry must match. Comparison is textual, so a numeric ID and its string form both match.",
+                "type": "object",
+                "additionalProperties": {
+                  "type": "string",
+                  "description": "Template. {name} is replaced by a field value, a runtime value, or a value a lookup step bound."
+                }
+              },
+              "take": {
+                "description": "Which field of the matched entry to bind.",
+                "type": "string"
+              }
+            }
+          },
+          "into": {
+            "description": "Name this value is bound to, usable as {name} afterwards.",
+            "type": "string",
+            "pattern": "^[a-z0-9_]+$"
+          },
+          "on_missing": {
+            "description": "What to do when nothing matches. \"fail\" reports that the record does not exist; \"create\" runs the create block instead of the update, which is how a record that is not there yet comes into being.",
+            "enum": [
+              "fail",
+              "create"
+            ],
+            "default": "fail"
+          }
+        }
+      }
+    },
+    "create": {
+      "description": "The call that creates the record, used when a lookup with on_missing: create found nothing.",
+      "$ref": "#/$defs/request"
+    },
+    "bindings": {
+      "description": "Extra values derived from the others, for providers that spell something standard their own way — a record type as 0 and 1 rather than A and AAAA. The alternative would be the executor learning a provider's name, which is the thing this design exists to avoid.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "from",
+          "map"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "from": {
+            "description": "Which value to translate.",
+            "type": "string"
+          },
+          "map": {
+            "type": "object",
+            "minProperties": 1,
+            "additionalProperties": {
+              "type": [
+                "string",
+                "number",
+                "boolean"
+              ]
+            }
+          },
+          "default": {
+            "type": [
+              "string",
+              "number",
+              "boolean"
+            ]
+          }
+        }
+      },
+      "propertyNames": {
+        "pattern": "^[a-z0-9_]+$"
+      }
+    }
+  },
+  "$defs": {
+    "field": {
+      "type": "object",
+      "required": [
+        "id",
+        "type",
+        "label"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "DNSmith's name for the field. This is what the stored record uses, so it must stay stable even if upstream renames its own.",
+          "type": "string",
+          "pattern": "^[a-z0-9_]+$"
+        },
+        "maps_to": {
+          "description": "The key written into the engine's settings object. Defaults to id. This indirection is what stops an upstream rename from invalidating saved records.",
+          "type": "string"
+        },
+        "type": {
+          "enum": [
+            "text",
+            "secret",
+            "email",
+            "hostname",
+            "domain",
+            "url",
+            "integer",
+            "boolean",
+            "select",
+            "duration",
+            "ipv6_prefix",
+            "multiline_secret"
+          ]
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1
+        },
+        "help": {
+          "type": "string"
+        },
+        "placeholder": {
+          "type": "string"
+        },
+        "required": {
+          "type": "boolean",
+          "default": false
+        },
+        "default": {
+          "type": [
+            "string",
+            "number",
+            "boolean",
+            "null"
+          ]
+        },
+        "options": {
+          "description": "Required for type \"select\".",
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": [
+              "value",
+              "label"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "value": {
+                "type": [
+                  "string",
+                  "number",
+                  "boolean"
+                ]
+              },
+              "label": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "when": {
+          "description": "Show this field only when another field has a given value. OVH needs it: its \"mode\" decides which credentials apply.",
+          "type": "object",
+          "required": [
+            "field",
+            "equals"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "field": {
+              "type": "string"
+            },
+            "equals": {
+              "type": [
+                "string",
+                "number",
+                "boolean"
+              ]
+            }
+          }
+        },
+        "validate": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "pattern": {
+              "type": "string",
+              "format": "regex"
+            },
+            "min": {
+              "type": "number"
+            },
+            "max": {
+              "type": "number"
+            },
+            "min_length": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "max_length": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "ui": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "special_values": {
+              "description": "Values with a meaning of their own, such as Cloudflare's TTL 1 meaning \"automatic\".",
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            },
+            "monospace": {
+              "type": "boolean"
+            },
+            "rows": {
+              "type": "integer",
+              "minimum": 2
+            }
+          }
+        },
+        "extract": {
+          "description": "Where this field's value sits inside an update URL, for providers that hand their users a finished URL rather than the value. A pasted URL is reduced to the value before validation; anything that is not a URL is left alone.",
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "maxProperties": 1,
+          "properties": {
+            "url_query": {
+              "description": "Name of the query parameter holding the value.",
+              "type": "string"
+            },
+            "url_path": {
+              "description": "\"last\" takes the final path segment.",
+              "enum": [
+                "last"
+              ]
+            }
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "select"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "required": [
+              "options"
+            ]
+          }
+        }
+      ]
+    },
+    "request": {
+      "type": "object",
+      "required": [
+        "url"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "url": {
+          "type": "string",
+          "description": "Target URL, templated. Must be https unless allow_http is set."
+        },
+        "method": {
+          "enum": [
+            "GET",
+            "POST",
+            "PUT",
+            "PATCH",
+            "DELETE"
+          ],
+          "default": "GET"
+        },
+        "allow_http": {
+          "description": "Permit a plain-http target. Only for providers that genuinely offer no TLS.",
+          "type": "boolean",
+          "default": false
+        },
+        "auth": {
+          "description": "An auth block, or a list of alternatives tried in order.",
+          "oneOf": [
+            {
+              "$ref": "#/$defs/auth"
+            },
+            {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "$ref": "#/$defs/auth"
+              }
+            }
+          ]
+        },
+        "params": {
+          "description": "Query parameters. A value that resolves to empty is dropped, not sent blank.",
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "description": "Template. {name} is replaced by a field value or by ipv4, ipv6, ip, hostname, domain, owner."
+          }
+        },
+        "headers": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "description": "Template. {name} is replaced by a field value or by ipv4, ipv6, ip, hostname, domain, owner."
+          }
+        },
+        "body_type": {
+          "enum": [
+            "none",
+            "json",
+            "form"
+          ],
+          "default": "none"
+        },
+        "body": {
+          "description": "Request body before templating. Strings inside are templated at any depth.",
+          "type": [
+            "object",
+            "array",
+            "string",
+            "null"
+          ]
+        },
+        "success": {
+          "description": "How to tell success from failure. Without this the executor falls back to the 2xx status code, which is wrong for DynDNS2 — it answers \"badauth\" with a 200.",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "vocabulary": {
+              "description": "Use a known answer vocabulary instead of a rule. \"dyndns2\" is the only one.",
+              "enum": [
+                "dyndns2"
+              ]
+            },
+            "status": {
+              "type": "array",
+              "items": {
+                "type": "integer"
+              },
+              "minItems": 1
+            },
+            "body_contains": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1
+            },
+            "body_regex": {
+              "type": "string",
+              "format": "regex"
+            },
+            "json_path_equals": {
+              "description": "Dotted path into a JSON answer and the value it must have, e.g. status=SUCCESS.",
+              "type": "object",
+              "additionalProperties": {
+                "type": [
+                  "string",
+                  "number",
+                  "boolean"
+                ]
+              }
+            }
+          }
+        },
+        "failures": {
+          "description": "Text in the answer mapped to a DNSmith error code, so the user reads a real sentence instead of the provider's raw output.",
+          "type": "object",
+          "additionalProperties": {
+            "enum": [
+              "auth",
+              "account",
+              "config",
+              "not_found",
+              "banned",
+              "rate_limit",
+              "provider_response",
+              "ip",
+              "unknown"
+            ]
+          }
+        }
+      }
+    },
+    "auth": {
+      "type": "object",
+      "required": [
+        "mode"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "mode": {
+          "enum": [
+            "none",
+            "basic",
+            "bearer",
+            "header",
+            "headers",
+            "query"
+          ]
+        },
+        "username": {
+          "type": "string",
+          "description": "Template. {name} is replaced by a field value or by ipv4, ipv6, ip, hostname, domain, owner."
+        },
+        "password": {
+          "type": "string",
+          "description": "Template. {name} is replaced by a field value or by ipv4, ipv6, ip, hostname, domain, owner."
+        },
+        "header": {
+          "type": "string",
+          "description": "Header name for mode \"header\"."
+        },
+        "format": {
+          "type": "string",
+          "description": "Header value template, e.g. \"Token {token}\"."
+        },
+        "param": {
+          "type": "string",
+          "description": "Query parameter name for mode \"query\"."
+        },
+        "value": {
+          "type": "string",
+          "description": "Query parameter value for mode \"query\"."
+        },
+        "values": {
+          "description": "Header name to value template, for mode \"headers\". All of them must resolve, or the candidate does not apply.",
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "mode": {
+                "const": "basic"
+              }
+            },
+            "required": [
+              "mode"
+            ]
+          },
+          "then": {
+            "required": [
+              "username",
+              "password"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "mode": {
+                "const": "header"
+              }
+            },
+            "required": [
+              "mode"
+            ]
+          },
+          "then": {
+            "required": [
+              "header",
+              "format"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "mode": {
+                "const": "query"
+              }
+            },
+            "required": [
+              "mode"
+            ]
+          },
+          "then": {
+            "required": [
+              "param",
+              "value"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "mode": {
+                "const": "headers"
+              }
+            },
+            "required": [
+              "mode"
+            ]
+          },
+          "then": {
+            "required": [
+              "values"
+            ]
+          }
+        }
+      ],
+      "description": "One way of authenticating. Several providers accept alternatives that are different requests rather than variations of one — a bearer token or the account's e-mail and password — so a list may be given instead, and the first candidate whose values are all present is used."
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "engine": {
+            "properties": {
+              "adapter": {
+                "const": "native"
+              },
+              "protocol": {
+                "const": "http"
+              }
+            },
+            "required": [
+              "adapter",
+              "protocol"
+            ]
+          }
+        },
+        "required": [
+          "engine"
+        ]
+      },
+      "then": {
+        "required": [
+          "request"
+        ]
+      }
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+
+# Hub-Abhängigkeiten. Bewusst kurz: jedes Paket landet im Add-on-Image.
+starlette>=0.37
+uvicorn>=0.30
+httpx>=0.27
+pydantic>=2.6
+PyYAML>=6.0
+
+# Nur für Google Cloud DNS: dessen Anmeldung verlangt einen RS256-signierten
+# JWT, also RSA, und das gibt die Standardbibliothek nicht her. Es gibt fertige
+# musllinux-Wheels für aarch64 und amd64 — hier wird nichts kompiliert.
+cryptography>=42.0

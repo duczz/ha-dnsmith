@@ -1,0 +1,44 @@
+# Quelle fuer providers/nowdns.yaml - von Hand gepflegt.
+# Nach jeder Aenderung: python3 tools/manifest_merge.py
+name: Now-DNS
+description: Kostenloser DDNS-Dienst. Seit Oktober 2024 gibt es API-Tokens, die das Konto-Passwort im
+  Update ersetzen — bis zu zehn je Konto.
+website: https://now-dns.com
+categories:
+- free_ddns
+- dyndns2_compatible
+engine:
+  adapter: native
+  protocol: dyndns2
+capabilities:
+  ipv4: true
+  ipv6: true
+  ipv6_suffix: true
+  ttl: false
+  proxy: false
+request:
+  url: https://now-dns.com/update
+  auth:
+    mode: basic
+    username: '{username}'
+    password: '{password}'
+  params:
+    hostname: '{domain}'
+    myip: '{ip}'
+  success:
+    vocabulary: dyndns2
+fields:
+- id: username
+  type: text
+  label: E-Mail-Adresse
+  required: true
+  help: Die E-Mail-Adresse deines Now-DNS-Kontos.
+- id: password
+  type: secret
+  label: API-Token oder Konto-Passwort
+  required: true
+  help: 'Am besten ein API-Token: im Konto unter „Generate Token" erzeugen, bis zu zehn Stück möglich.
+    Er ersetzt hier das Konto-Passwort, lässt sich einzeln zurückziehen und gibt niemandem Zugriff auf
+    dein Konto. Das Konto-Passwort funktioniert weiterhin, ist aber der schlechtere Weg.
+
+    '

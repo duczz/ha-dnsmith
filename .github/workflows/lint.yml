@@ -1,0 +1,29 @@
+name: App-Lint
+
+# Prüft config.yaml und build.yaml gegen das, was der Supervisor erwartet.
+# Das Gegenstück zu hassfest, das es nur für Integrationen gibt.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "dnsmith/config.yaml"
+      - "dnsmith/build.yaml"
+      - "repository.json"
+      - ".github/workflows/lint.yml"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: App-Manifest prüfen
+        uses: frenck/action-app-linter@v2
+        with:
+          path: "./dnsmith"

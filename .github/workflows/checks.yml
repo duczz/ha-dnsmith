@@ -1,0 +1,103 @@
+name: Prüfungen
+
+# Was hier läuft, ist dasselbe, was lokal "bash tests/run.sh" laufen lässt.
+# Kein Go mehr: seit die Provider-Logik im Repository selbst liegt, gibt es
+# nichts zu übersetzen und keinen fremden Quelltext, gegen den geprüft werden
+# müsste.
+
+on:
+  push:
+    paths:
+      - "dnsmith/**"
+      - "schemas/**"
+      - "tools/**"
+      - "tests/**"
+      - "docs/providers/**"
+      - "scripts/**"
+      - "repository.json"
+      - ".github/workflows/checks.yml"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Abhängigkeiten
+        # Die des Hubs dazu, sonst überspringen sich zwei der fünf Suiten
+        # selbst und der Lauf sieht grüner aus als er ist.
+        run: |
+          pip install --quiet pyyaml jsonschema
+          pip install --quiet -r dnsmith/hub/requirements.txt
+
+      - name: Manifeste sind aktuell
+        # Schlägt fehl, wenn jemand providers/*.yaml von Hand bearbeitet oder
+        # eine Quelldatei in providers/src/ geändert und nicht neu erzeugt
+        # hat. Beides wäre sonst ein stiller Fehler.
+        run: python3 tools/manifest_merge.py --check
+
+      - name: Doku ist aktuell
+        # Derselbe stille Fehler wie oben, nur für docs/providers/*.md: eine
+        # geänderte Quelldatei, für die niemand gen_docs.py erneut laufen ließ.
+        run: python3 tools/gen_docs.py --check
+
+      - name: Alle Testsuiten
+        run: python3 -m unittest discover -s tests -t . -v
+
+      - name: Katalog zusammenfassen
+        if: always()
+        run: |
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import pathlib, yaml
+
+          manifests = [
+              yaml.safe_load(path.read_text(encoding="utf-8"))
+              for path in sorted(pathlib.Path("dnsmith/providers").glob("*.yaml"))
+          ]
+          by_adapter = {}
+          for manifest in manifests:
+              adapter = manifest["engine"]["adapter"]
+              by_adapter.setdefault(adapter, []).append(manifest["id"])
+
+          print(f"## {len(manifests)} Anbieter\n")
+          labels = {
+              "native": "deklarativ, kein Code",
+              "python": "eigenes Modul",
+              "unported": "noch nicht umgesetzt",
+          }
+          for adapter, ids in sorted(by_adapter.items()):
+              print(f"- **{len(ids)}** {labels.get(adapter, adapter)}")
+          offen = by_adapter.get("unported") or []
+          if offen:
+              print(f"\nOffen: {', '.join(sorted(offen))}")
+          PY
+
+  # Die Prüfungen oben fassen die Verpackung nicht an. Ohne diesen Job wird ein
+  # gelöschtes COPY im Dockerfile oder eine umbenannte s6-Dienstdatei grün: das
+  # Add-on baut durch und tut dann nichts. scripts/test-build.sh prüft genau
+  # das und lief bisher nur von Hand.
+  build:
+    name: App bauen und starten
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Image bauen und anfassen
+        run: bash scripts/test-build.sh
+
+      - name: AppArmor-Profil ist syntaktisch gültig
+        # Nur die Syntax. Ob das Profil im Betrieb genau das Richtige erlaubt,
+        # zeigt erst ein echtes Home Assistant.
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq apparmor-utils >/dev/null
+          sudo apparmor_parser -Q dnsmith/apparmor.txt && echo "Profil ist gültig"

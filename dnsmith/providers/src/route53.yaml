@@ -1,0 +1,50 @@
+# Quelle fuer providers/route53.yaml - von Hand gepflegt.
+# Nach jeder Aenderung: python3 tools/manifest_merge.py
+name: Amazon Route 53
+description: DNS-Dienst von AWS. Braucht neben den Zugangsschlüsseln die ID der Hosted Zone.
+website: https://aws.amazon.com/route53/
+categories:
+- cloud_dns
+engine:
+  adapter: python
+  module: route53
+capabilities:
+  ipv4: true
+  ipv6: true
+  ipv6_suffix: true
+  ttl: true
+  proxy: false
+rate_limit:
+  note: Route 53 drosselt je AWS-Konto auf etwa fünf Anfragen je Sekunde im Dauerbetrieb.
+fields:
+- id: access_key
+  type: secret
+  label: Access Key ID
+  required: true
+  help: 'Die AWS_ACCESS_KEY_ID eines IAM-Benutzers. Der Benutzer braucht die Berechtigung route53:ChangeResourceRecordSets
+    für deine Hosted Zone.
+
+    '
+- id: secret_key
+  type: secret
+  label: Secret Access Key
+  required: true
+  help: 'Der zugehörige AWS_SECRET_ACCESS_KEY, kein Konsolen-Passwort. Wird nur einmal beim Anlegen des
+    Zugriffsschlüssels angezeigt.
+
+    '
+- id: zone_id
+  type: text
+  label: Hosted Zone ID
+  required: true
+  help: 'Die ID der Hosted Zone, etwa A30888735ZF12K83Z6F00. In der Route-53-Konsole unter "Hosted zones"
+    → Zone → Details.
+
+    '
+- id: ttl
+  type: integer
+  label: TTL
+  help: Sekunden. Leer lassen verwendet 300.
+example:
+  ttl: '300'
+  zone_id: A30888735ZF12K83Z6F00

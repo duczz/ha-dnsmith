@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 🔐 Sicherheitslücke melden
+    url: https://github.com/duczz/ha-dnsmith/security/advisories/new
+    about: Bitte nicht als öffentliches Issue — siehe SECURITY.md
+  - name: 📖 Handbuch und Fehlersuche
+    url: https://github.com/duczz/ha-dnsmith/blob/main/dnsmith/DOCS.md
+    about: Die häufigen Fälle stehen dort bereits

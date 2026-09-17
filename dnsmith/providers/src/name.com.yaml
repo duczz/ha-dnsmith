@@ -1,0 +1,75 @@
+# Quelle fuer providers/name.com.yaml - von Hand gepflegt.
+# Nach jeder Aenderung: python3 tools/manifest_merge.py
+name: Name.com
+description: US-Registrar mit API-Token je Konto.
+website: https://www.name.com
+categories:
+- registrar
+engine:
+  adapter: native
+  protocol: http
+capabilities:
+  ipv4: true
+  ipv6: true
+  ipv6_suffix: true
+  ttl: true
+  proxy: false
+lookup:
+- url: https://api.name.com/v4/domains/{domain}/records
+  select:
+    path: records
+    where:
+      host: '{subdomain}'
+      type: '{rrtype}'
+    take: id
+  into: record_id
+  on_missing: create
+request:
+  url: https://api.name.com/v4/domains/{domain}/records/{record_id}
+  method: PUT
+  auth: &id001
+    mode: basic
+    username: '{username}'
+    password: '{token}'
+  headers: &id002
+    Content-Type: application/json
+    Accept: application/json
+  body_type: json
+  body: &id003
+    host: '{subdomain}'
+    type: '{rrtype}'
+    answer: '{ip}'
+    ttl: '{ttl}'
+  success: &id004
+    status:
+    - 200
+create:
+  url: https://api.name.com/v4/domains/{domain}/records
+  method: POST
+  auth: *id001
+  headers: *id002
+  body_type: json
+  body: *id003
+  success: *id004
+fields:
+- id: username
+  type: text
+  label: Benutzername
+  required: true
+  help: Dein name.com-Account-Login.
+- id: token
+  type: secret
+  label: API-Token
+  required: true
+  help: 'Nicht dein Passwort. Unter Account → Settings → API erzeugen; der Token wird nur direkt nach
+    dem Anlegen angezeigt.
+
+    '
+- id: ttl
+  type: integer
+  label: TTL
+  validate:
+    min: 300
+  help: Sekunden, mindestens 300. Kleinere Werte lehnt die Engine ab.
+example:
+  ttl: '300'

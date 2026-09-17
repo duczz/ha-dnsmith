@@ -1,0 +1,30 @@
+# Quelle fuer providers/freedns.yaml - von Hand gepflegt.
+# Nach jeder Aenderung: python3 tools/manifest_merge.py
+name: FreeDNS
+description: Kostenloser Dienst mit vielen gemeinschaftlich geteilten Domains. Das Update läuft über einen
+  Token aus der persönlichen Sync-Adresse.
+website: https://freedns.afraid.org
+categories:
+- free_ddns
+engine:
+  adapter: native
+  protocol: http
+capabilities:
+  ipv4: true
+  ipv6: true
+  ipv6_suffix: true
+  ttl: false
+  proxy: false
+request:
+  url: https://{v6prefix}sync.afraid.org/u/{token}/
+  success:
+    body_regex: ^(updated |no ip change detected)
+fields:
+- id: token
+  type: secret
+  label: Update-Token
+  required: true
+  help: Der Token aus der Update-Adresse, die FreeDNS für den Eintrag anzeigt. Du kannst die ganze Adresse
+    einfügen (https://sync.afraid.org/u/…/) — DNSmith nimmt sich den Token selbst heraus.
+  extract:
+    url_path: last

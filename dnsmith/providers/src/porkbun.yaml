@@ -1,0 +1,39 @@
+# Quelle fuer providers/porkbun.yaml - von Hand gepflegt.
+# Nach jeder Aenderung: python3 tools/manifest_merge.py
+name: Porkbun
+description: US-Registrar. Der API-Zugriff muss zusätzlich je Domain freigeschaltet werden.
+website: https://porkbun.com
+categories:
+- registrar
+engine:
+  adapter: python
+  module: porkbun
+capabilities:
+  ipv4: true
+  ipv6: true
+  ipv6_suffix: true
+  ttl: true
+  proxy: false
+fields:
+- id: api_key
+  type: secret
+  label: API-Key
+  required: true
+  help: 'Der öffentliche Teil des Schlüsselpaars, beginnt meist mit pk1_. Unter porkbun.com/account/api
+    erzeugen. Zusätzlich musst du bei der Domain selbst den Schalter "API ACCESS" einschalten, sonst wird
+    jede Anfrage abgelehnt.
+
+    '
+- id: secret_api_key
+  type: secret
+  label: Secret-API-Key
+  required: true
+  help: 'Der geheime Teil desselben Paars, beginnt meist mit sk1_. Nicht dein Porkbun-Passwort; wird nur
+    einmal angezeigt.
+
+    '
+- id: ttl
+  type: integer
+  label: TTL
+  placeholder: '600'
+  help: Sekunden. Leer lassen behält den Standardwert von Porkbun.

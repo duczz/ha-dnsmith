@@ -1,0 +1,45 @@
+name: DNSmith
+version: "0.1.0"
+slug: dnsmith
+# No full stop at the end. Home Assistant appends one itself when it renders
+# the description under the installed app, so a trailing period shows up as "..".
+description: >-
+  Ein Hub für alle Dynamic-DNS-Anbieter. Einmal installieren, Anbieter
+  auswählen, Zugangsdaten eintragen — fertig
+url: https://github.com/duczz/ha-dnsmith
+
+# No "image:" key on purpose. With one, the Supervisor pulls a prebuilt image
+# from a registry; without it, it builds this folder locally with the
+# Dockerfile below. Local building is what makes the add-on installable
+# straight from a copied folder, with no registry and no CI in between.
+
+# Home Assistant dropped 32-bit architectures, so promising armv7 or armhf
+# would promise a platform the Supervisor base no longer supports.
+arch:
+  - aarch64
+  - amd64
+
+# The interface lives behind Ingress. No port is published: nothing outside
+# Home Assistant needs to reach this add-on, and an unexposed port cannot be
+# found by a scan.
+ingress: true
+panel_icon: mdi:dns
+panel_title: DNSmith
+
+init: false
+
+map:
+  - type: addon_config
+    read_only: false
+
+# Health check moved to the Dockerfile's HEALTHCHECK directive — the
+# Supervisor's "watchdog" key is obsolete for this.
+
+# Lets the add-on announce itself to Home Assistant so the integration can be
+# set up without the user copying a host and a token by hand.
+hassio_api: true
+discovery:
+  - dnsmith
+
+backup_exclude:
+  - "*.tmp"

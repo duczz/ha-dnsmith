@@ -1,0 +1,73 @@
+# Quelle fuer providers/gandi.yaml - von Hand gepflegt.
+# Nach jeder Aenderung: python3 tools/manifest_merge.py
+name: Gandi
+description: Französischer Registrar und DNS-Anbieter. Neue Zugänge nutzen einen Personal Access Token.
+website: https://www.gandi.net
+categories:
+- registrar
+- dns_provider
+engine:
+  adapter: native
+  protocol: http
+capabilities:
+  ipv4: true
+  ipv6: true
+  ipv6_suffix: true
+  ttl: true
+  proxy: false
+rate_limit:
+  note: Bis zu 1000 Anfragen je Minute von derselben IP-Adresse.
+auth:
+  one_of:
+  - id: pat
+    label: Personal Access Token
+    recommended: true
+    fields:
+    - personal_access_token
+    hint: 'Bei Gandi unter Organisationen → Organisation wählen → Reiter Sharing → "Create a token" anlegen
+      und ihm Rechte zur DNS-Verwaltung geben.
+
+      '
+  - id: apikey
+    label: API-Key (veraltet)
+    deprecated: true
+    fields:
+    - key
+    hint: 'Der alte Gandi-API-Key, im Quelltext als veraltet markiert und nur Rückfall, wenn kein Token
+      gesetzt ist.
+
+      '
+request:
+  url: https://api.gandi.net/v5/livedns/domains/{domain}/records/{owner}/{rrtype}
+  method: PUT
+  auth:
+  - mode: bearer
+    format: '{personal_access_token}'
+  - mode: header
+    header: X-Api-Key
+    format: '{key}'
+  headers:
+    Content-Type: application/json
+    Accept: application/json
+  body_type: json
+  body:
+    rrset_values:
+    - '{ip}'
+    rrset_ttl: '{ttl}'
+  success:
+    status:
+    - 200
+    - 201
+fields:
+- id: personal_access_token
+  type: secret
+  label: Personal Access Token
+- id: key
+  type: secret
+  label: API-Key (veraltet)
+- id: ttl
+  type: integer
+  label: TTL
+  help: Sekunden. Leer lassen übernimmt den Standardwert der Zone.
+example:
+  ttl: '3600'
