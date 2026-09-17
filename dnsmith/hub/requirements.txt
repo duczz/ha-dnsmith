@@ -3,7 +3,7 @@
 starlette>=0.37
 uvicorn>=0.30
 httpx>=0.27
-pydantic>=2.6
+pydantic>=2.13.5
 PyYAML>=6.0
 
 # Nur für Google Cloud DNS: dessen Anmeldung verlangt einen RS256-signierten
