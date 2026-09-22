@@ -22,6 +22,13 @@ const state = {
   form: null,
   record: null,
   busy: false,
+  // Records with an update in flight that the last fetched status does not
+  // know about yet — either a manual trigger still awaiting its response, or
+  // a freshly created record whose background update (api.py::_update_soon)
+  // has not reported back. Cleared once a fetched status shows a real
+  // attempt (last_attempt set), never by a timeout — a slow provider should
+  // read as "still updating", not silently drop back to "noch kein Update".
+  pendingUpdates: new Set(),
 };
 
 let toastTimer = null;
@@ -139,10 +146,16 @@ function errorBox(error) {
 
 function recordRow(record) {
   const status = record.status || { state: 'unset' };
+  // An update just triggered for this record (manual click, or the
+  // background update a fresh creation kicks off) outruns the next fetched
+  // status. Show "wird aktualisiert" for that gap instead of whatever the
+  // last known state was — "unset"/"noch kein Update" reads as if nothing is
+  // happening at all.
+  const displayState = state.pendingUpdates.has(record.id) ? 'updating' : status.state;
   const bits = [record.provider_name, ipVersionLabel(record.ip_version)];
 
   const when = relativeTime(status.last_success || status.last_attempt);
-  bits.push(STATE_TEXT[status.state] || status.state);
+  bits.push(STATE_TEXT[displayState] || displayState);
   if (when) bits.push(when);
 
   const main = el('div', { class: 'record-main' }, [
@@ -157,7 +170,7 @@ function recordRow(record) {
   if (status.error) main.append(errorBox(status.error));
 
   return el('div', { class: 'record' }, [
-    el('span', { class: dotClass(status.state), title: STATE_TEXT[status.state] || '' }),
+    el('span', { class: dotClass(displayState), title: STATE_TEXT[displayState] || '' }),
     main,
     el('div', { class: 'record-actions' }, [
       el('button', {
@@ -245,10 +258,27 @@ function renderDashboard() {
   show(node);
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+// Fetches status and drops anything from pendingUpdates that it now has a
+// real answer for. The single place that reads a fetched status, so the
+// ambient poll, the post-create burst poll and loadDashboard() all clear the
+// optimistic flag the same way instead of three copies of the same check.
+async function refreshStatus() {
+  const status = await api.status();
+  for (const record of status.records) {
+    if (record.status.last_attempt) state.pendingUpdates.delete(record.id);
+  }
+  state.status = status;
+  return status;
+}
+
 async function loadDashboard() {
   loading();
   try {
-    state.status = await api.status();
+    await refreshStatus();
     state.view = 'dashboard';
     markTab('dashboard');
     renderDashboard();
@@ -260,6 +290,24 @@ async function loadDashboard() {
         el('button', { class: 'btn', text: 'Erneut versuchen', onclick: loadDashboard }),
       ]),
     ]));
+  }
+}
+
+// Polls faster than the ambient 30s refresh right after a record was just
+// created, so "wird aktualisiert" turns into the real result within a few
+// seconds instead of sitting there for up to half a minute. Gives up after
+// ~30s (roughly REQUEST_TIMEOUT) — the ambient poll picks it up whenever it
+// does land, pendingUpdates is only ever cleared by a real answer.
+async function burstPoll(rounds = 15, everyMs = 2000) {
+  for (let i = 0; i < rounds && state.pendingUpdates.size; i += 1) {
+    await sleep(everyMs);
+    if (state.view !== 'dashboard' || document.hidden) return;
+    try {
+      await refreshStatus();
+    } catch {
+      return;
+    }
+    renderDashboard();
   }
 }
 
@@ -594,7 +642,12 @@ async function save(fields, payload) {
       });
       toast('Änderungen gespeichert.');
     } else {
-      await api.createRecord(payload);
+      const created = await api.createRecord(payload);
+      // The server already kicked off the first update in the background
+      // (api.py::create_record -> _update_soon) before this call returned —
+      // no second update call from here, that would just hit the provider
+      // twice. This only marks it as in flight so the dashboard says so.
+      state.pendingUpdates.add(created.id);
       toast('Eintrag angelegt — das erste Update läuft bereits.');
     }
   } catch (error) {
@@ -614,6 +667,7 @@ async function save(fields, payload) {
   // in flight hands the user a row of dead buttons that only come back on the
   // next poll — which looks like the add-on needing a few seconds to think.
   await loadDashboard();
+  burstPoll();
 }
 
 async function remove(record) {
@@ -635,6 +689,11 @@ async function remove(record) {
 
 async function forceUpdate(recordId) {
   state.busy = true;
+  // Marked and redrawn before the await, not after — this call blocks on the
+  // real request to the provider, so without this the row just sits on
+  // whatever it said before with no sign that the click did anything.
+  state.pendingUpdates.add(recordId);
+  renderDashboard();
   toast('Update wird ausgelöst…');
   try {
     const result = await api.updateRecord(recordId);
@@ -646,6 +705,7 @@ async function forceUpdate(recordId) {
     // button reads state.busy as it is built, so a list drawn while this is
     // still true comes back with every button dead until the next poll.
     state.busy = false;
+    state.pendingUpdates.delete(recordId);
   }
   await loadDashboard();
 }
@@ -836,9 +896,8 @@ loadDashboard();
 // Only while the tab is visible and nothing is mid-flight.
 setInterval(() => {
   if (state.view === 'dashboard' && !state.busy && !document.hidden) {
-    api.status().then((status) => {
-      state.status = status;
-      renderDashboard();
-    }).catch(() => { /* a transient failure must not replace the view */ });
+    refreshStatus()
+      .then(renderDashboard)
+      .catch(() => { /* a transient failure must not replace the view */ });
   }
 }, 30000);
