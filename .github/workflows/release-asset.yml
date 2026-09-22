@@ -1,0 +1,29 @@
+name: Release-Asset
+
+# Haengt beim Veroeffentlichen eines Releases ein ZIP von dnsmith/ als Asset
+# an. GitHub zaehlt Downloads nur fuer explizit hochgeladene Assets, nicht
+# fuer die automatischen "Source code"-Links.
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  attach-zip:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: ZIP aus dnsmith/ bauen
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          zip -r "ha-dnsmith-${version}.zip" dnsmith
+          echo "ASSET=ha-dnsmith-${version}.zip" >> "$GITHUB_ENV"
+
+      - name: Asset an Release haengen
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "${GITHUB_REF_NAME}" "${ASSET}" --clobber

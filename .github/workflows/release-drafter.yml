@@ -1,0 +1,23 @@
+name: Release-Entwurf
+
+# Hält einen Entwurf der nächsten Release-Notes aktuell, sobald etwas auf main
+# landet. Veröffentlicht nichts von selbst.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  draft:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: read
+    steps:
+      - uses: release-drafter/release-drafter@v7
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

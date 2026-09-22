@@ -1,0 +1,39 @@
+# Quelle fuer providers/myaddr.yaml - von Hand gepflegt.
+# Nach jeder Aenderung: python3 tools/manifest_merge.py
+name: myaddr.tools
+description: 'Minimalistischer kostenloser Dienst: eine Subdomain, ein Schlüssel, kein Konto.'
+website: https://myaddr.tools
+categories:
+- free_ddns
+engine:
+  adapter: native
+  protocol: http
+capabilities:
+  ipv4: true
+  ipv6: true
+  ipv6_suffix: true
+  ttl: false
+  proxy: false
+request:
+  url: https://myaddr.tools/update
+  method: POST
+  headers:
+    Content-Type: application/x-www-form-urlencoded
+  body_type: form
+  body:
+    key: '{key}'
+    ip: '{ip}'
+  success:
+    status:
+    - 200
+  failures:
+    not found: auth
+fields:
+- id: key
+  type: secret
+  label: Schlüssel
+  required: true
+  help: 'Den Schlüssel bekommst du bei der Registrierung der Subdomain. Ein Konto-Passwort gibt es nicht
+    — wer den Schlüssel hat, kontrolliert den Namen. Geht er verloren, ist die Subdomain weg.
+
+    '

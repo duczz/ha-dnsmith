@@ -1,0 +1,51 @@
+# Quelle fuer providers/cloudns.yaml - von Hand gepflegt.
+# Nach jeder Aenderung: python3 tools/manifest_merge.py
+name: ClouDNS
+description: DNS-Anbieter aus Bulgarien mit kostenlosem Tarif. Je Eintrag wird eine geheime Update-Adresse
+  erzeugt; aktualisiert wird immer auf die Adresse, von der die Anfrage kommt.
+website: https://www.cloudns.net
+categories:
+- dns_provider
+- free_ddns
+engine:
+  adapter: native
+  protocol: http
+capabilities:
+  ipv4: true
+  ipv6: true
+  ipv6_suffix: false
+  ttl: false
+  proxy: false
+rate_limit:
+  note: Keine dokumentierte Grenze. ClouDNS empfiehlt für DDNS-Einträge eine TTL von einer Stunde.
+  min_interval: 60s
+request:
+  url: https://ipv{ipversion}.cloudns.net/api/dynamicURL/
+  params:
+    q: '{key}'
+  success:
+    body_contains:
+    - OK
+fields:
+- id: key
+  type: secret
+  label: Schlüssel der Update-Adresse
+  required: true
+  help: 'In der Zonenverwaltung beim A- oder AAAA-Eintrag auf das DynDNS-Symbol klicken. ClouDNS zeigt
+    dann eine fertige Adresse an; gebraucht wird daraus nur der Teil hinter "q=". Du kannst auch die ganze
+    Adresse einfügen, DNSmith kürzt sie selbst.
+
+    '
+  extract:
+    url_query: q
+notes:
+- 'Jeder Schlüssel gehört zu genau einem Eintrag. Für A und AAAA derselben Domain erzeugt ClouDNS zwei
+  verschiedene Schlüssel — in DNSmith brauchst du dafür zwei Einträge.
+
+  '
+- '**ClouDNS ignoriert die von DNSmith ermittelte Adresse.** Der Dienst trägt immer die Adresse ein, von
+  der die Anfrage kommt. Die Einstellung „Woher die IP-Adressen kommen" wirkt hier deshalb nicht: Eine
+  feste Adresse oder eine Home-Assistant-Entität als Quelle ändert nichts daran, mit welcher Adresse der
+  Eintrag beschrieben wird. Für Anschlüsse hinter DS-Lite ist ClouDNS damit ungeeignet.
+
+  '

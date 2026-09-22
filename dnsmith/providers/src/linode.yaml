@@ -1,0 +1,69 @@
+# Quelle fuer providers/linode.yaml - von Hand gepflegt.
+# Nach jeder Aenderung: python3 tools/manifest_merge.py
+name: Linode
+description: Cloud-Anbieter. Verwaltet die DNS-Zonen der dort eingetragenen Domains.
+website: https://www.linode.com
+categories:
+- cloud_dns
+engine:
+  adapter: native
+  protocol: http
+capabilities:
+  ipv4: true
+  ipv6: true
+  ipv6_suffix: true
+  ttl: false
+  proxy: false
+rate_limit:
+  note: 1600 Anfragen je Minute; für paginierte Abfragen, also Listen, 200 je Minute.
+lookup:
+- url: https://api.linode.com/v4/domains
+  headers:
+    X-Filter: '{"domain": "{domain}"}'
+  select:
+    path: data
+    take: id
+  into: domain_id
+- url: https://api.linode.com/v4/domains/{domain_id}/records
+  select:
+    path: data
+    where:
+      name: '{subdomain}'
+      type: '{rrtype}'
+    take: id
+  into: record_id
+  on_missing: create
+request:
+  url: https://api.linode.com/v4/domains/{domain_id}/records/{record_id}
+  method: PUT
+  auth: &id001
+    mode: bearer
+    format: '{token}'
+  headers: &id002
+    Content-Type: application/json
+  body_type: json
+  body:
+    target: '{ip}'
+  success: &id003
+    status:
+    - 200
+create:
+  url: https://api.linode.com/v4/domains/{domain_id}/records
+  method: POST
+  auth: *id001
+  headers: *id002
+  body_type: json
+  body:
+    type: '{rrtype}'
+    name: '{subdomain}'
+    target: '{ip}'
+  success: *id003
+fields:
+- id: token
+  type: secret
+  label: Personal Access Token
+  required: true
+  help: 'Kein Konto-Passwort. Im Cloud Manager oben auf den Benutzernamen → API Tokens → "Create a Personal
+    Access Token" und dem Token Schreibrechte für Domains geben.
+
+    '

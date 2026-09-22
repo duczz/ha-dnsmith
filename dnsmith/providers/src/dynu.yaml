@@ -1,0 +1,52 @@
+# Quelle fuer providers/dynu.yaml - von Hand gepflegt.
+# Nach jeder Aenderung: python3 tools/manifest_merge.py
+name: Dynu
+description: Kommerzieller DDNS-Anbieter mit kostenlosem Tarif, eigenen Domains und DynDNS2-kompatibler
+  Schnittstelle.
+website: https://www.dynu.com
+categories:
+- commercial_ddns
+- free_ddns
+- dyndns2_compatible
+popular: true
+engine:
+  adapter: native
+  protocol: dyndns2
+capabilities:
+  ipv4: true
+  ipv6: true
+  ipv6_suffix: true
+  ttl: false
+  proxy: false
+request:
+  url: https://api.dynu.com/nic/update
+  params:
+    username: '{username}'
+    password: '{password}'
+    location: '{group}'
+    hostname: '{hostname}'
+    myip: '{ipv4}'
+    myipv6: '{ipv6}'
+  success:
+    vocabulary: dyndns2
+fields:
+- id: username
+  type: text
+  label: Benutzername
+  required: true
+  help: Der Benutzername des Dynu-Accounts.
+- id: password
+  type: secret
+  label: Passwort oder IP-Update-Passwort
+  required: true
+  help: 'Dynu empfiehlt ein eigenes IP-Update-Passwort statt des Account-Passworts. Es steht im Control
+    Panel unter "IP Update Password".
+
+    '
+- id: group
+  type: text
+  label: Gruppe
+  help: 'Nur nötig, wenn mehrere Hostnamen in einer Dynu-Gruppe gemeinsam aktualisiert werden sollen.
+    Sonst leer lassen.
+
+    '

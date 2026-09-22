@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>DNSmith</title>
+<link rel="stylesheet" href="assets/styles.css">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-inner">
+    <h1 class="brand">DNSmith</h1>
+    <nav class="tabs" id="tabs">
+      <button type="button" data-view="dashboard" class="tab is-active">Übersicht</button>
+      <button type="button" data-view="settings" class="tab">Einstellungen</button>
+    </nav>
+  </div>
+</header>
+
+<main id="view" class="view" aria-live="polite">
+  <div class="loading">
+    <span class="spinner" aria-hidden="true"></span>
+    Wird geladen…
+  </div>
+</main>
+
+<div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+<script type="module" src="assets/app.js"></script>
+</body>
+</html>

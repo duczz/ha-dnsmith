@@ -1,0 +1,51 @@
+# Quelle fuer providers/dondominio.yaml - von Hand gepflegt.
+# Nach jeder Aenderung: python3 tools/manifest_merge.py
+name: DonDominio
+description: Spanischer Registrar. Updates laufen über einen eigenen DonDNS-Key.
+website: https://www.dondominio.com
+categories:
+- registrar
+engine:
+  adapter: native
+  protocol: http
+capabilities:
+  ipv4: true
+  ipv6: true
+  ipv6_suffix: true
+  ttl: false
+  proxy: false
+request:
+  url: https://dondns.dondominio.com/json/
+  params:
+    user: '{username}'
+    password: '{key}'
+    host: '{hostname}'
+    ip: '{ip}'
+    lang: en
+  headers:
+    Accept: application/json
+  success:
+    json_path_equals:
+      success: true
+fields:
+- id: username
+  type: text
+  label: Benutzername
+  required: true
+  help: Dein DonDominio- bzw. MrDomain-Benutzername aus dem Kundenbereich.
+- id: key
+  type: secret
+  label: DonDNS-Key
+  required: true
+  help: 'Ein eigens erzeugtes Zweitpasswort, nicht dein Konto-Passwort. Im Kundenbereich unter "Mein Konto"
+    den Punkt "DonDNS Key" öffnen und bei Bedarf einen neuen erzeugen.
+
+    '
+- id: password
+  type: secret
+  label: DonDNS-Key (altes Feld)
+  required: false
+  help: 'Veraltet. Der Quelltext kopiert diesen Wert nur nach "key", wenn dieses leer ist — bisher stand
+    es im Formular genau andersherum. Für neue Einrichtungen leer lassen.
+
+    '

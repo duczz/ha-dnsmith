@@ -1,0 +1,47 @@
+# Quelle fuer providers/changeip.yaml - von Hand gepflegt.
+# Nach jeder Aenderung: python3 tools/manifest_merge.py
+name: ChangeIP
+description: Älterer DDNS-Dienst mit kostenlosem und kostenpflichtigem Tarif.
+website: https://www.changeip.com
+categories:
+- free_ddns
+- commercial_ddns
+- dyndns2_compatible
+engine:
+  adapter: native
+  protocol: http
+capabilities:
+  ipv4: true
+  ipv6: true
+  ipv6_suffix: true
+  ttl: false
+  proxy: false
+request:
+  url: https://nic.changeip.com/nic/update
+  auth:
+    mode: basic
+    username: '{username}'
+    password: '{password}'
+  params:
+    hostname: '{hostname}'
+    ip: '{ip}'
+  success:
+    status:
+    - 200
+fields:
+- id: username
+  type: text
+  label: Benutzername
+  required: true
+  help: 'Dein ChangeIP-Kontoname. Bei Gratis-Konten ist das oft eine vergebene Kennung der Form dynXXXXXXX.
+
+    '
+- id: password
+  type: secret
+  label: Konto-Passwort
+  required: true
+  help: 'Das Passwort deines ChangeIP-Kontos. Ein getrenntes Update-Passwort gibt es hier nicht.
+
+    '
+example:
+  username: dynXXXXXXX

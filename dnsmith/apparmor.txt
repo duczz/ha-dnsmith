@@ -1,0 +1,78 @@
+#include <tunables/global>
+
+# Why this profile looks the way it does.
+#
+# The first version tried to whitelist every readable path and denied
+# everything else. It killed the container on the first instruction:
+#
+#   /bin/sh: can't open '/init': Permission denied
+#
+# s6-overlay's /init is a shell SCRIPT, not a binary. The kernel execs it,
+# sees the "#!" line, loads /bin/sh, and then /bin/sh has to OPEN /init to
+# read it. A rule of "/init ix" grants execute and nothing else, so that open
+# was refused — and the same trap sits under /package, /command and every
+# service script below /etc/s6-overlay, all of which are scripts too.
+#
+# So file access is granted wholesale here, exactly as Home Assistant's own
+# add-on template does. That is less of a giveaway than it looks: the
+# filesystem in question is this container's own, it is thrown away on every
+# restart, and the only paths that reach the host are the two mounts the
+# add-on declares. The restrictions that actually matter are the ones further
+# down — the socket types — plus the ones that are absent from config.yaml:
+# no privileged, no host_network, no host_pid, no extra devices.
+profile dnsmith flags=(attach_disconnected,mediate_deleted) {
+  #include <abstractions/base>
+
+  capability,
+  file,
+
+  # s6 supervises two long-running services and has to be able to signal them.
+  signal (send) set=(kill,term,int,hup,cont),
+
+  # The socket types DNSmith is allowed to open.
+  #
+  # This is the real restriction. Absent from the list — and therefore denied —
+  # is "network inet raw": no raw sockets, so a compromised provider adapter
+  # cannot forge or sniff packets on the host's network. "netlink raw" has to
+  # stay: the resolver enumerates interfaces through it, and without it every
+  # DNS lookup fails with a permission error that reads like a provider
+  # outage.
+  network inet stream,
+  network inet dgram,
+  network inet6 stream,
+  network inet6 dgram,
+  network unix stream,
+  network unix dgram,
+  network netlink raw,
+
+  # Not granted anywhere above, and denied by default as a result: ptrace,
+  # mount, umount, pivot_root. Spelled out so that removing them stays a
+  # deliberate act rather than an accident.
+  deny ptrace,
+  deny mount,
+  deny umount,
+  deny pivot_root,
+
+  # s6-overlay: init, the supervision tree, and the service scripts.
+  /init ix,
+  /bin/** ix,
+  /usr/bin/** ix,
+  /usr/local/bin/** ix,
+  /package/** ix,
+  /command/** ix,
+  /etc/s6-overlay/** ix,
+  /run/{s6,s6-rc*,service}/** ix,
+  /run/{,**} rwk,
+  /dev/tty rw,
+
+  # bashio, which every run script starts with.
+  /usr/lib/bashio/** ix,
+  /tmp/** rwk,
+
+  # The process itself. There is only one since the Go engine was removed.
+  /usr/bin/python3* ix,
+
+  # The add-on's own data.
+  /config/** rw,
+  /data/** rw,
+}

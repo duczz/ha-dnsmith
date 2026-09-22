@@ -1,0 +1,85 @@
+# Quelle fuer providers/vercel.yaml - von Hand gepflegt.
+# Nach jeder Aenderung: python3 tools/manifest_merge.py
+name: Vercel
+description: Hosting-Plattform. Verwaltet die DNS-Einträge der dort eingetragenen Domains.
+website: https://vercel.com
+categories:
+- cloud_dns
+engine:
+  adapter: native
+  protocol: http
+capabilities:
+  ipv4: true
+  ipv6: true
+  ipv6_suffix: true
+  ttl: true
+  proxy: false
+rate_limit:
+  note: 50 Anfragen je Minute für das Anlegen und Ändern von DNS-Einträgen.
+lookup:
+- url: https://api.vercel.com/v5/domains/{domain}/records
+  params:
+    teamId: '{team_id}'
+  select:
+    path: records
+    where:
+      name: '{subdomain}'
+      type: '{rrtype}'
+    take: id
+  into: record_id
+  on_missing: create
+request:
+  url: https://api.vercel.com/v1/domains/records/{record_id}
+  method: PATCH
+  auth: &id001
+    mode: bearer
+    format: '{token}'
+  headers: &id002
+    Content-Type: application/json
+    Accept: application/json
+  params: &id003
+    teamId: '{team_id}'
+  body_type: json
+  body: &id004
+    name: '{subdomain}'
+    type: '{rrtype}'
+    value: '{ip}'
+    ttl: '{ttl}'
+  success:
+    status:
+    - 200
+create:
+  url: https://api.vercel.com/v2/domains/{domain}/records
+  method: POST
+  auth: *id001
+  headers: *id002
+  params: *id003
+  body_type: json
+  body: *id004
+  success:
+    status:
+    - 200
+    - 201
+fields:
+- id: token
+  type: secret
+  label: API-Token
+  required: true
+  help: 'Kein Konto-Passwort. Im Dashboard auf das persönliche Konto wechseln, Settings → Tokens → Create.
+    Danach wird es nicht wieder angezeigt.
+
+    '
+- id: team_id
+  type: text
+  label: Team-ID
+  help: 'Nur nötig, wenn die Domain einem Team gehört und nicht deinem persönlichen Konto. Steht in den
+    allgemeinen Team-Einstellungen.
+
+    '
+- id: ttl
+  type: integer
+  label: TTL
+  placeholder: '60'
+  help: 'Sekunden. Leer lassen sendet das Feld gar nicht mit, Vercel behält dann seinen Wert.
+
+    '

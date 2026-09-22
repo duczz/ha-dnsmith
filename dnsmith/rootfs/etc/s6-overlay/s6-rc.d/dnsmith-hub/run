@@ -1,0 +1,12 @@
+#!/command/with-contenv bashio
+# The hub: configuration, interface, updates — the whole add-on.
+set -e
+
+mkdir -p /config/dnsmith
+chmod 700 /config/dnsmith
+
+export DNSMITH_LOG_LEVEL="$(bashio::config 'log_level' 'info' 2>/dev/null || echo info)"
+
+bashio::log.info "Starte DNSmith auf Port ${DNSMITH_PORT}"
+cd /app
+exec python3 -m dnsmith_hub.app
