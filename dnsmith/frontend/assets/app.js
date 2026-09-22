@@ -389,7 +389,7 @@ function providerGrid(providers) {
             : null,
         ]),
         provider.description
-          ? el('div', { class: 'provider-desc', text: provider.description })
+          ? el('div', { class: 'provider-desc', text: provider.description, title: provider.description })
           : null,
       ]),
     ])));
