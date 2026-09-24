@@ -3,7 +3,8 @@
 schema_version: 1
 id: changeip
 name: ChangeIP
-description: Älterer DDNS-Dienst mit kostenlosem und kostenpflichtigem Tarif.
+description: Älterer DDNS-Dienst. Bezahltes DDNS für eigene Domains; kostenlose Namen nur unter ChangeIP-Domains
+  (die Domains auf changeip.com sind seit Juni 2026 eingestellt).
 website: https://www.changeip.com
 categories:
 - free_ddns
@@ -48,5 +49,5 @@ fields:
 example:
   username: dynXXXXXXX
 generated:
-  generated_at: '2026-09-16T11:53:31Z'
+  generated_at: '2026-09-24T06:14:13Z'
   source: src

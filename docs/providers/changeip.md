@@ -2,7 +2,7 @@
 
 # ChangeIP
 
-Älterer DDNS-Dienst mit kostenlosem und kostenpflichtigem Tarif.
+Älterer DDNS-Dienst. Bezahltes DDNS für eigene Domains; kostenlose Namen nur unter ChangeIP-Domains (die Domains auf changeip.com sind seit Juni 2026 eingestellt).
 
 Website: <https://www.changeip.com>
 
@@ -25,4 +25,4 @@ Einordnung: kostenlos, kommerziell, DynDNS2
 
 ---
 
-Stand: 16.09.2026.
+Stand: 24.09.2026.

@@ -1,7 +1,7 @@
 # Quelle fuer providers/changeip.yaml - von Hand gepflegt.
 # Nach jeder Aenderung: python3 tools/manifest_merge.py
 name: ChangeIP
-description: Älterer DDNS-Dienst mit kostenlosem und kostenpflichtigem Tarif.
+description: Älterer DDNS-Dienst. Bezahltes DDNS für eigene Domains; kostenlose Namen nur unter ChangeIP-Domains (die Domains auf changeip.com sind seit Juni 2026 eingestellt).
 website: https://www.changeip.com
 categories:
 - free_ddns
