@@ -2,6 +2,31 @@
 
 Alle nennenswerten Änderungen an diesem Projekt werden hier festgehalten.
 
+## [0.1.1] - 2026-09-24
+
+Korrekturrelease ohne neue Anbieter.
+
+### Behoben
+- **Wechsel der Anmeldevariante** — beim Speichern werden die Zugangsdaten
+  der nicht gewählten Variante gelöscht (Dyn, spdyn, Gigahost). Vorher blieben
+  sie stehen.
+- **Verbindung testen bei Haupt-Domains** — bei Anbietern mit Lookup fand der
+  Test einen Eintrag ohne Subdomain nicht.
+- **Hetzner** — die Bestätigung einer Änderung wird über
+  `/zones/actions/{id}` abgefragt, den dokumentierten Zonen-Endpunkt. Gestützt
+  auf die API-Beschreibung und eine Messung im Projekt ddns-updater
+  (Issue #1136); mit einem eigenen Konto nicht erprobt.
+- **Dynu** — eine Gruppe wird als `group` gesendet, wie Dynu es heute
+  dokumentiert (früher `location`). Gegen ein echtes Konto mit Gruppe nicht
+  geprüft.
+
+### Geändert
+- **Anbieter-Doku** — die Zeile „IPv6-Suffix" entfällt, weil DNSmith den
+  Suffix nicht anwendet. ChangeIP nennt in der Beschreibung, was der Dienst
+  noch bietet (bezahltes DDNS für eigene Domains).
+- **Manifest-Schema** — ein Manifest kann mehrere Betriebsarten eines
+  Anbieters beschreiben (`modes:`). Noch nutzt kein Anbieter das.
+
 ## [0.1.0] - 2026-09-21
 
 Erste Fassung. Im Lauf dieser Version ist die frühere Go-Engine entfallen;

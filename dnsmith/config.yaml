@@ -1,5 +1,5 @@
 name: DNSmith
-version: "0.1.0"
+version: "0.1.1"
 slug: dnsmith
 # No full stop at the end. Home Assistant appends one itself when it renders
 # the description under the installed app, so a trailing period shows up as "..".
