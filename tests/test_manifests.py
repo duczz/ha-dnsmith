@@ -186,6 +186,137 @@ class TestContractActuallyFails(ManifestTestCase):
 
         self.assertTrue(any("duckdns" in problem for problem in problems))
 
+    def _with_mode_field(self, manifest, *, default="legacy", modes=("rest",)):
+        """A copy of `manifest` with a self-consistent mode_field/modes pair.
+
+        Returns the manifest; the caller still owns what each mode's own
+        request/lookup/create/bindings say.
+        """
+        manifest = copy.deepcopy(manifest)
+        manifest["fields"].append({
+            "id": "mode",
+            "type": "select",
+            "label": "Verfahren",
+            "default": default,
+            "options": [{"value": default, "label": default}]
+            + [{"value": mode_id, "label": mode_id} for mode_id in modes],
+        })
+        manifest["mode_field"] = "mode"
+        manifest["modes"] = {
+            mode_id: {"request": {"url": "https://example.org/update"}} for mode_id in modes
+        }
+        return manifest
+
+    def test_a_well_formed_mode_is_accepted(self):
+        """The shape a manifest with an alternative way in actually needs.
+
+        Proves modes/mode_field/omit_if_empty parse and cross-check cleanly:
+        mode_field names a real select field, its options match modes plus
+        the default, and the mode's own request has nothing left dangling.
+        """
+        ok = self._with_mode_field(self.manifests["gandi"])
+        ok["modes"]["rest"]["request"] = {
+            "url": "https://example.org/v2/dns/records",
+            "method": "POST",
+            "body_type": "json",
+            "body": {"ipv4Address": "{ipv4}", "ipv6Address": "{ipv6}"},
+            "omit_if_empty": ["ipv4Address", "ipv6Address"],
+        }
+
+        broken = copy.deepcopy(self.manifests)
+        broken["gandi"] = ok
+        problems = [p for p in self.check(broken) if "gandi" in p]
+
+        self.assertEqual(problems, [])
+
+    def test_modes_without_mode_field_is_rejected(self):
+        """dependentRequired: modes names which field decides — pointless
+
+        without it, and the executor would have nothing to resolve() against.
+        """
+        broken = copy.deepcopy(self.manifests)
+        broken["gandi"]["modes"] = {
+            "rest": {"request": {"url": "https://example.org/update"}},
+        }
+
+        problems = self.check(broken)
+
+        self.assertTrue(any("gandi" in problem for problem in problems))
+
+    def test_a_field_hidden_in_another_mode_does_not_satisfy_this_ones_placeholder(self):
+        """The regression _fields_hidden_in_mode exists to catch.
+
+        A field shown only for "legacy" is absent from the form when "rest"
+        is active — the executor's context simply will not have it — so a
+        mode referencing it must be reported exactly like referencing a field
+        that does not exist at all.
+        """
+        broken = self._with_mode_field(self.manifests["gandi"])
+        broken["fields"].append({
+            "id": "legacy_only",
+            "type": "text",
+            "label": "Nur im alten Verfahren",
+            "when": {"field": "mode", "equals": "legacy"},
+        })
+        broken["modes"]["rest"]["request"] = {
+            "url": "https://example.org/update?x={legacy_only}",
+        }
+
+        manifests = copy.deepcopy(self.manifests)
+        manifests["gandi"] = broken
+        problems = self.check(manifests)
+
+        self.assertTrue(any("legacy_only" in p and "'rest'" in p for p in problems))
+
+    def test_a_field_visible_in_its_own_mode_does_satisfy_the_placeholder(self):
+        """The positive half of the same check, so it cannot pass by never firing."""
+        ok = self._with_mode_field(self.manifests["gandi"])
+        ok["fields"].append({
+            "id": "rest_only",
+            "type": "text",
+            "label": "Nur im neuen Verfahren",
+            "when": {"field": "mode", "equals": "rest"},
+        })
+        ok["modes"]["rest"]["request"] = {
+            "url": "https://example.org/update?x={rest_only}",
+        }
+
+        manifests = copy.deepcopy(self.manifests)
+        manifests["gandi"] = ok
+        problems = [p for p in self.check(manifests) if "gandi" in p]
+
+        self.assertEqual(problems, [])
+
+    def test_mode_field_options_not_matching_modes_is_rejected(self):
+        broken = self._with_mode_field(self.manifests["gandi"])
+        # An option for a mode that does not exist in `modes`.
+        broken["fields"][-1]["options"].append({"value": "stray", "label": "stray"})
+
+        manifests = copy.deepcopy(self.manifests)
+        manifests["gandi"] = broken
+        problems = self.check(manifests)
+
+        self.assertTrue(any("mode_field" in p and "gandi" in p for p in problems))
+
+    def test_a_when_condition_naming_an_unknown_mode_is_rejected(self):
+        """A typo in `equals` hides a field as thoroughly as a typo in `field` —
+
+        just quieter, because the field and the mode it names both exist.
+        """
+        broken = self._with_mode_field(self.manifests["gandi"])
+        broken["fields"].append({
+            "id": "legacy_only",
+            "type": "text",
+            "label": "Nur im alten Verfahren",
+            "when": {"field": "mode", "equals": "legac"},  # typo for "legacy"
+        })
+
+        manifests = copy.deepcopy(self.manifests)
+        manifests["gandi"] = broken
+        problems = self.check(manifests)
+
+        self.assertTrue(any("legacy_only" in p and "not a mode" in p for p in problems))
+
 
 class TestManifestProperties(ManifestTestCase):
     """Properties that must hold for every provider, overlaid or not."""
@@ -461,6 +592,37 @@ class TestDocs(ManifestTestCase):
         rendered = gen_docs.render(gen_docs.load())
         for identifier in self.manifests:
             self.assertIn(f"{identifier}.md", rendered)
+
+    def test_a_providers_modes_are_named_on_its_page(self):
+        """The page for a provider with alternatives says what they are,
+
+        pulled from mode_field's own select options — nothing repeated by
+        hand, matching how "## Anmeldeverfahren" already reads auth.one_of.
+        """
+        manifest = {
+            "name": "Beispiel",
+            "capabilities": {"ipv4": True, "ipv6": True},
+            "mode_field": "mode",
+            "fields": [
+                {
+                    "id": "mode",
+                    "type": "select",
+                    "label": "Verfahren",
+                    "default": "legacy",
+                    "options": [
+                        {"value": "legacy", "label": "Bisheriger Weg"},
+                        {"value": "rest", "label": "REST (neu)"},
+                    ],
+                },
+            ],
+        }
+
+        text = gen_docs.page(manifest)
+
+        self.assertIn("## Verfahren", text)
+        self.assertIn("Bisheriger Weg", text)
+        self.assertIn("REST (neu)", text)
+        self.assertIn("Bisheriger Weg** _(Vorgabe)_", text)
 
     def test_no_manifest_points_at_upstream_documentation(self):
         """The pages and the form are DNSmith's own text, not a link out.

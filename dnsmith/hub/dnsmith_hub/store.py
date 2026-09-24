@@ -267,6 +267,10 @@ class ConfigStore:
                 record.fields = plain
                 if secret:
                     self._secrets.set_many(record_id, secret)
+                if auth_variant is not None:
+                    self._secrets.forget_fields(
+                        record_id, _stale_variant_fields(provider, auth_variant)
+                    )
                 record.secret_fields = self._secrets.field_names(record_id)
 
             if label is not None:
@@ -394,6 +398,29 @@ class ConfigStore:
         identity_provider = f"native:{provider.id}"
         engine_version = _primary_engine_version(ip_version)
         return derive_record_id(identity_provider, domain, owner, engine_version, ipv6_suffix)
+
+
+def _stale_variant_fields(provider: Provider, active_variant: str) -> set[str]:
+    """Which fields belong to an auth variant other than the active one.
+
+    Only called with an explicit `auth_variant` — never with the resolved
+    default, so a caller that omits it (a partial update, a script) cannot be
+    misread as "switched to the default variant" and lose its real secrets.
+    A field shared between two variants (none today, but the schema allows
+    it) is never stale, since dropping it would still break the variant that
+    keeps using it.
+    """
+    variants = provider.auth_variants
+    if not variants:
+        return set()
+
+    active_fields = set()
+    other_fields = set()
+    for variant in variants:
+        target = active_fields if variant["id"] == active_variant else other_fields
+        target.update(variant["fields"])
+
+    return other_fields - active_fields
 
 
 def _primary_engine_version(ip_version: str) -> str:

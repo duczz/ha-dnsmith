@@ -23,7 +23,7 @@ request:
   params:
     username: '{username}'
     password: '{password}'
-    location: '{group}'
+    group: '{group}'
     hostname: '{hostname}'
     myip: '{ipv4}'
     myipv6: '{ipv6}'

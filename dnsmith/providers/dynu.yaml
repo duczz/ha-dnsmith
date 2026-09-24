@@ -25,7 +25,7 @@ request:
   params:
     username: '{username}'
     password: '{password}'
-    location: '{group}'
+    group: '{group}'
     hostname: '{hostname}'
     myip: '{ipv4}'
     myipv6: '{ipv6}'
@@ -53,5 +53,5 @@ fields:
 
     '
 generated:
-  generated_at: '2026-09-16T11:53:31Z'
+  generated_at: '2026-09-24T05:36:25Z'
   source: src

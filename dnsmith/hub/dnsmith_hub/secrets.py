@@ -136,6 +136,34 @@ class SecretStore:
             if self._secrets.pop(record_id, None) is not None:
                 self.save()
 
+    def forget_fields(self, record_id: str, field_ids: set[str]) -> None:
+        """Drop specific fields, independent of what a caller submitted.
+
+        `set_many` deliberately leaves an absent field alone — that is what
+        lets a blank secret input mean "keep it". This is the other half:
+        fields that belong to an auth variant the record no longer uses.
+        Those are never present in a submitted form at all (the UI only ever
+        renders the active variant's inputs), so `set_many` would leave them
+        stranded forever without an explicit call like this one.
+        """
+        if not field_ids:
+            return
+        with self._lock:
+            self._ensure_loaded()
+            current = dict(self._secrets.get(record_id, {}))
+            changed = False
+            for field_id in field_ids:
+                if current.pop(field_id, None) is not None:
+                    changed = True
+
+            if not changed:
+                return
+            if current:
+                self._secrets[record_id] = current
+            else:
+                self._secrets.pop(record_id, None)
+            self.save()
+
     def retain_only(self, record_ids: set[str]) -> list[str]:
         """Drop secrets whose record no longer exists.
 

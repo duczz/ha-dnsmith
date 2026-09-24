@@ -181,13 +181,18 @@ class Service:
         owner = payload.get("owner", "@")
         domain = payload.get("domain", "")
 
+        # Same resolve() the scheduler uses for the real update, so a probe
+        # against a record whose mode differs from the default tests the mode
+        # that would actually run, not always the manifest's top-level one.
+        resolved = provider.resolve({**plain, **secret})
+
         return self.native.probe(
             {
                 "adapter": provider.adapter,
-                "protocol": provider.protocol,
-                "request": provider.request,
-                "lookup": provider.lookup,
-                "bindings": provider.bindings,
+                "protocol": resolved.protocol,
+                "request": resolved.request,
+                "lookup": resolved.lookup,
+                "bindings": resolved.bindings,
                 "values": {**plain, **secret},
                 # The real names, so a live lookup asks about the record the
                 # user is actually configuring rather than a stand-in.

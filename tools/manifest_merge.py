@@ -161,6 +161,84 @@ def build(src_dir: pathlib.Path) -> dict[str, dict[str, Any]]:
     return manifests
 
 
+def _fields_hidden_in_mode(
+    manifest: dict[str, Any], mode_field: str | None, mode_id: Any
+) -> set[str]:
+    """Field IDs this manifest's own "when" conditions hide when mode_id is active.
+
+    Only conditions on the field named by mode_field count — a manifest with
+    modes is expected to gate its per-mode fields on exactly that field, the
+    same way OVH already gates its two auth blocks on "mode". A field with no
+    "when", or one that depends on some other field entirely, is never hidden
+    by this and stays available to every mode.
+    """
+    if mode_field is None:
+        return set()
+    hidden = set()
+    for field in manifest.get("fields", []):
+        condition = field.get("when")
+        if condition and condition.get("field") == mode_field and condition.get("equals") != mode_id:
+            hidden.add(field["id"])
+    return hidden
+
+
+def _validate_native_call(
+    identifier: str,
+    label: str,
+    blocks: dict[str, Any],
+    known: set[str],
+    field_ids: set[str],
+    problems: list[str],
+) -> None:
+    """The placeholder/lookup/create checks for one request/lookup/create/bindings
+
+    set. `blocks` is either the manifest itself (the default mode) or one
+    entry of `modes` — both carry the same four keys, read directly rather
+    than assuming which container it is. `known` is what is available before
+    this call's own bindings and lookup steps add to it; `field_ids` is only
+    used to spell out what a provider's form actually offers when a
+    placeholder cannot be resolved.
+    """
+    bindings = blocks.get("bindings") or {}
+    for name, rule in bindings.items():
+        if rule["from"] not in known:
+            problems.append(
+                f"{identifier}{label}: binding {name!r} reads {rule['from']!r}, which nothing supplies"
+            )
+    known = known | set(bindings)
+
+    for index, step in enumerate(blocks.get("lookup") or []):
+        for name in sorted(placeholders(step) - known):
+            problems.append(
+                f"{identifier}{label}: lookup step {index + 1} uses {{{name}}}, which nothing "
+                f"supplies at that point"
+            )
+        known = known | {step["into"]}
+
+    for section in ("request", "create"):
+        block = blocks.get(section)
+        if block is None:
+            continue
+        for name in sorted(placeholders(block) - known):
+            problems.append(
+                f"{identifier}{label}: {section} uses {{{name}}}, which is neither a field on "
+                f"this provider's form, nor a value the updater supplies, nor anything "
+                f"a lookup binds (fields: {', '.join(sorted(field_ids)) or 'none'})"
+            )
+
+    wants_create = any((step.get("on_missing") == "create")
+                       for step in blocks.get("lookup") or [])
+    if wants_create and not blocks.get("create"):
+        problems.append(
+            f"{identifier}{label}: a lookup says to create the record when it is missing, "
+            f"but there is no create block that says how"
+        )
+    if blocks.get("create") and not wants_create:
+        problems.append(
+            f"{identifier}{label}: there is a create block but no lookup asks for it"
+        )
+
+
 def validate(
     manifests: dict[str, dict[str, Any]],
     schema: dict[str, Any],
@@ -181,46 +259,60 @@ def validate(
         engine = manifest["engine"]
         adapter = engine.get("adapter")
         field_ids = {field["id"] for field in manifest["fields"]}
+        modes = manifest.get("modes")
+        mode_field_name = manifest.get("mode_field")
+
+        # mode_field/modes have to describe one consistent choice: a select
+        # field whose options are exactly the alternatives (the manifest's
+        # own top-level blocks are always one of them, implicitly, and never
+        # repeated as a modes entry) — otherwise resolve() would have no way
+        # to tell which mode a record without a stored value should fall back
+        # to, or the wizard would offer an option that selects nothing.
+        default_mode_id: Any = None
+        if mode_field_name is not None:
+            mode_field_obj = next(
+                (f for f in manifest["fields"] if f["id"] == mode_field_name), None
+            )
+            if mode_field_obj is None:
+                problems.append(f"{identifier}: mode_field {mode_field_name!r} names no field")
+            else:
+                if mode_field_obj.get("type") != "select":
+                    problems.append(
+                        f"{identifier}: mode_field {mode_field_name!r} must be a select field, "
+                        f"not {mode_field_obj.get('type')!r}"
+                    )
+                default_mode_id = mode_field_obj.get("default")
+                mode_ids = set((modes or {}).keys())
+                option_values = {option["value"] for option in mode_field_obj.get("options", [])}
+                if default_mode_id is None:
+                    problems.append(
+                        f"{identifier}: mode_field {mode_field_name!r} needs a default — the "
+                        f"mode a record gets when nothing overrides it"
+                    )
+                elif default_mode_id in mode_ids:
+                    problems.append(
+                        f"{identifier}: mode_field {mode_field_name!r}'s default "
+                        f"{default_mode_id!r} must not also be a key of modes — the default is "
+                        f"the manifest's own top-level blocks, implicit, never one of modes"
+                    )
+                expected = mode_ids | ({default_mode_id} if default_mode_id is not None else set())
+                if option_values != expected:
+                    problems.append(
+                        f"{identifier}: mode_field {mode_field_name!r} options "
+                        f"{sorted(map(str, option_values))} must be exactly modes plus the "
+                        f"default ({sorted(map(str, expected))})"
+                    )
 
         if adapter == "native":
-            # A lookup step may use what earlier steps bound, so the set of
-            # known names grows as the plan is walked — and the update at the
-            # end may use all of them.
-            known = field_ids | RUNTIME_VALUES | set(manifest.get("bindings") or {})
-            for name, rule in (manifest.get("bindings") or {}).items():
-                if rule["from"] not in field_ids | RUNTIME_VALUES:
-                    problems.append(
-                        f"{identifier}: binding {name!r} reads {rule['from']!r}, which nothing supplies"
-                    )
-            for index, step in enumerate(manifest.get("lookup") or []):
-                for name in sorted(placeholders(step) - known):
-                    problems.append(
-                        f"{identifier}: lookup step {index + 1} uses {{{name}}}, which nothing "
-                        f"supplies at that point"
-                    )
-                known = known | {step["into"]}
+            hidden = _fields_hidden_in_mode(manifest, mode_field_name, default_mode_id)
+            known = (field_ids - hidden) | RUNTIME_VALUES
+            _validate_native_call(identifier, "", manifest, known, field_ids - hidden, problems)
 
-            for section in ("request", "create"):
-                block = manifest.get(section)
-                if block is None:
-                    continue
-                for name in sorted(placeholders(block) - known):
-                    problems.append(
-                        f"{identifier}: {section} uses {{{name}}}, which is neither a field on "
-                        f"this provider's form, nor a value the updater supplies, nor anything "
-                        f"a lookup binds (fields: {', '.join(sorted(field_ids)) or 'none'})"
-                    )
-
-            wants_create = any((step.get("on_missing") == "create")
-                               for step in manifest.get("lookup") or [])
-            if wants_create and not manifest.get("create"):
-                problems.append(
-                    f"{identifier}: a lookup says to create the record when it is missing, "
-                    f"but there is no create block that says how"
-                )
-            if manifest.get("create") and not wants_create:
-                problems.append(
-                    f"{identifier}: there is a create block but no lookup asks for it"
+            for mode_id, mode_block in (modes or {}).items():
+                hidden = _fields_hidden_in_mode(manifest, mode_field_name, mode_id)
+                known = (field_ids - hidden) | RUNTIME_VALUES
+                _validate_native_call(
+                    identifier, f" mode {mode_id!r}", mode_block, known, field_ids - hidden, problems
                 )
         elif adapter == "python":
             module = engine.get("module")
@@ -229,8 +321,10 @@ def validate(
                     f"{identifier}: engine.module {module!r} has no file at "
                     f"{adapter_dir.name}/{module}.py"
                 )
+            if modes:
+                problems.append(f"{identifier}: modes require adapter: native")
         elif adapter == "unported":
-            if "request" in manifest or "lookup" in manifest:
+            if "request" in manifest or "lookup" in manifest or modes:
                 problems.append(
                     f"{identifier}: an unported provider must not carry a request block — "
                     f"either it is ported and the adapter says so, or it is not"
@@ -246,14 +340,28 @@ def validate(
                     )
 
         # A "when" condition pointing at a missing field means the dependent
-        # field can never appear.
+        # field can never appear — and one pointing at mode_field but naming a
+        # value that is neither a mode nor the default is the same failure in
+        # a typo's clothing: equally never shown, just harder to notice.
         for field in manifest["fields"]:
             condition = field.get("when")
-            if condition and condition["field"] not in field_ids:
+            if not condition:
+                continue
+            if condition["field"] not in field_ids:
                 problems.append(
                     f"{identifier}: field {field['id']!r} depends on unknown "
                     f"field {condition['field']!r}"
                 )
+            elif condition["field"] == mode_field_name:
+                valid = set((modes or {}).keys())
+                if default_mode_id is not None:
+                    valid = valid | {default_mode_id}
+                if condition["equals"] not in valid:
+                    problems.append(
+                        f"{identifier}: field {field['id']!r} is shown only when "
+                        f"{condition['field']!r} == {condition['equals']!r}, which is not a "
+                        f"mode this provider has"
+                    )
 
     return problems
 

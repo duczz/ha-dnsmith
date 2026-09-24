@@ -8,13 +8,15 @@ unittest, kein pytest: die Suiten sollen auf einem nackten Python laufen.
 
 ## Was ohne Installation läuft
 
-Drei der fünf Suiten brauchen nur PyYAML und jsonschema:
+Vier der sechs Suiten brauchen nur PyYAML und jsonschema:
 
 - `test_manifests.py` — der Platzhalter-Vertrag und die Eigenschaften, die für
   jedes Provider-Manifest gelten müssen
 - `test_native_executor.py` — der deklarative Executor für sich
 - `test_provider_requests.py` — was jeder portierte Anbieter tatsächlich
   sendet, samt Endpunkt-Tabelle
+- `test_provider_modules.py` — die neun Provider-Module; nur ihre
+  Google-Cloud-DNS-Tests brauchen zusätzlich `cryptography` (siehe unten)
 
 Das ist der Teil, der die Provider-Manifeste absichert — also genau der Teil,
 den man beim Portieren eines Anbieters braucht.

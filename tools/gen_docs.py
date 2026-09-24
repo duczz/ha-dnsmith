@@ -164,6 +164,36 @@ def field_rows(manifest: dict) -> list[str]:
     return rows
 
 
+def mode_lines(manifest: dict) -> list[str]:
+    """The alternatives modes/mode_field describe, if this provider has any.
+
+    Their labels live on mode_field's own select field, the same field the
+    form itself renders the chooser from — so this, like the rest of the
+    page, only ever repeats what the manifest already says once.
+    """
+    mode_field_id = manifest.get("mode_field")
+    if not mode_field_id:
+        return []
+    field = next((f for f in manifest["fields"] if f["id"] == mode_field_id), None)
+    if field is None:
+        return []
+
+    default = field.get("default")
+    lines = [
+        "## Verfahren\n",
+        "Dieser Anbieter bietet mehr als einen Weg, den Eintrag zu aktualisieren. "
+        f"Welche Felder zu welchem gehören, steht dort als \"nur bei "
+        f"{mode_field_id} = ...\".\n",
+    ]
+    for option in field.get("options", []):
+        value = option["value"]
+        label = option.get("label", str(value))
+        suffix = " _(Vorgabe)_" if value == default else ""
+        lines.append(f"- **{label}**{suffix}")
+    lines.append("")
+    return lines
+
+
 def provenance(generated: dict) -> list[str]:
     """Wie alt ist das hier? Die erste Frage bei einer Anbieter-Doku.
 
@@ -200,6 +230,8 @@ def page(manifest: dict) -> str:
     out.append("|---|---|")
     out.extend(capability_lines(manifest))
     out.append("")
+
+    out.extend(mode_lines(manifest))
 
     variants = (manifest.get("auth") or {}).get("one_of", [])
     if variants:

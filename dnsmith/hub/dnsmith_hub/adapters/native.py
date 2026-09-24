@@ -369,7 +369,7 @@ class NativeAdapter:
 
         json_body = form_body = None
         if spec.body_type == "json":
-            json_body = _render_deep(spec.body, context)
+            json_body = _drop_empty_keys(_render_deep(spec.body, context), spec.omit_if_empty)
         elif spec.body_type == "form":
             form_body = _non_empty(spec.body or {}, context)
 
@@ -477,7 +477,9 @@ class NativeAdapter:
 
         json_body = form_body = None
         if step.get("body_type") == "json":
-            json_body = _render_deep(step.get("body"), context)
+            json_body = _drop_empty_keys(
+                _render_deep(step.get("body"), context), step.get("omit_if_empty") or []
+            )
         elif step.get("body_type") == "form":
             form_body = _non_empty(step.get("body") or {}, context)
 
@@ -620,7 +622,12 @@ class NativeAdapter:
         """
         values = spec.get("values", {})
         context: dict[str, Any] = {**_PROBE_PLACEHOLDERS, **values}
-        context.update({key: value for key, value in spec.get("context", {}).items() if value})
+        # Every key here is one service.probe() deliberately set (including
+        # an apex's empty "subdomain") — `if value` used to drop the falsy
+        # ones, so an apex probe kept the "host" placeholder and never found
+        # its own record.
+        context.update({key: value for key, value in spec.get("context", {}).items()
+                         if value is not None})
 
         for name, rule in (spec.get("bindings") or {}).items():
             context[name] = rule["map"].get(str(context.get(rule["from"], "")), rule.get("default", ""))
@@ -862,6 +869,7 @@ class RequestSpec:
     headers: dict[str, str] = field(default_factory=dict)
     body_type: str = "none"
     body: Any = None
+    omit_if_empty: list[str] = field(default_factory=list)
     success: dict[str, Any] = field(default_factory=dict)
     failures: dict[str, str] = field(default_factory=dict)
 
@@ -876,6 +884,7 @@ class RequestSpec:
             headers=block.get("headers") or {},
             body_type=block.get("body_type", "none"),
             body=block.get("body"),
+            omit_if_empty=block.get("omit_if_empty") or [],
             success=block.get("success") or {},
             failures=block.get("failures") or {},
         )
@@ -944,6 +953,28 @@ def _render_deep(value: Any, values: dict[str, Any]) -> Any:
     if isinstance(value, list):
         return [_render_deep(item, values) for item in value]
     return value
+
+
+def _drop_empty_keys(body: Any, keys: list[str]) -> Any:
+    """Remove named JSON body keys whose rendered value is an empty string.
+
+    _render_deep's default — send a whole-placeholder field as "" once every
+    candidate is absent — is load-bearing: Servercow's apex record is sent as
+    name: "" on purpose, and dropping that key changes which record Servercow
+    updates. So the default stays. This is the opt-in a manifest reaches for
+    instead, naming exactly the keys where "absent" and "" must not be the
+    same thing — a provider whose body names the address key once per record
+    type (ipv4Address / ipv6Address), one present at a time, because the API
+    tells A and AAAA apart by which key showed up, not by a shared {rrtype}
+    field the way most JSON-body providers do it.
+
+    Only a top-level dict is supported: nothing here needs more than that yet,
+    and reaching into nested objects or list items would make "which keys"
+    ambiguous in a way the manifest schema would have to grow to resolve.
+    """
+    if not keys or not isinstance(body, dict):
+        return body
+    return {key: item for key, item in body.items() if not (key in keys and item == "")}
 
 
 def _non_empty(mapping: dict[str, str], values: dict[str, Any]) -> dict[str, str]:

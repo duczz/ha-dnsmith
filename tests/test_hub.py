@@ -55,6 +55,7 @@ from dnsmith_hub.publicip import PublicIPResolver, _parse as parse_public_ip  # 
 from dnsmith_hub.scheduler import Scheduler  # noqa: E402
 from dnsmith_hub.models import IPVersion, build_fqdn, derive_record_id  # noqa: E402
 from dnsmith_hub.registry import (  # noqa: E402
+    Provider,
     Registry,
     normalise_values,
     apply_defaults,
@@ -615,6 +616,160 @@ class TestDefaults(unittest.TestCase):
             self.assertNotIn(field["id"], filled)
 
 
+class TestResolveMode(unittest.TestCase):
+    """Provider.resolve() — the pivot point for a provider with alternative
+
+    ways to update, and the reason mode_field/modes exist at all.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.registry = load_registry()
+
+    def test_every_existing_provider_resolves_to_its_own_top_level_blocks(self):
+        """The regression the whole feature must not cause: nothing in the
+
+        catalogue has modes yet, so resolve() must be exactly a mirror of the
+        properties it replaces for every one of them, whatever `values` is.
+        """
+        for provider in self.registry.all():
+            with self.subTest(provider=provider.id):
+                resolved = provider.resolve({})
+                self.assertEqual(resolved.protocol, provider.protocol)
+                self.assertEqual(resolved.request, provider.request)
+                self.assertEqual(resolved.lookup, provider.lookup)
+                self.assertEqual(resolved.create, provider.create)
+                self.assertEqual(resolved.bindings, provider.bindings)
+
+    @staticmethod
+    def _provider_with_modes():
+        return Provider({
+            "id": "synthetic",
+            "name": "Synthetic",
+            "engine": {"adapter": "native", "protocol": "http"},
+            "capabilities": {"ipv4": True, "ipv6": True},
+            "fields": [
+                {
+                    "id": "mode",
+                    "type": "select",
+                    "label": "Verfahren",
+                    "default": "legacy",
+                    "options": [
+                        {"value": "legacy", "label": "legacy"},
+                        {"value": "rest", "label": "rest"},
+                    ],
+                },
+            ],
+            "mode_field": "mode",
+            "request": {"url": "https://legacy.example.org/update"},
+            "modes": {
+                "rest": {
+                    "request": {"url": "https://rest.example.org/update"},
+                    "protocol": "http",
+                },
+            },
+        })
+
+    def test_a_missing_mode_resolves_to_the_default(self):
+        resolved = self._provider_with_modes().resolve({})
+        self.assertEqual(resolved.request["url"], "https://legacy.example.org/update")
+
+    def test_a_mode_equal_to_the_default_resolves_to_the_default(self):
+        resolved = self._provider_with_modes().resolve({"mode": "legacy"})
+        self.assertEqual(resolved.request["url"], "https://legacy.example.org/update")
+
+    def test_a_real_mode_resolves_to_its_own_blocks(self):
+        resolved = self._provider_with_modes().resolve({"mode": "rest"})
+        self.assertEqual(resolved.request["url"], "https://rest.example.org/update")
+
+    def test_an_unknown_mode_is_refused_not_silently_defaulted(self):
+        """Silently falling back would let a typo'd or stale stored mode send
+
+        one mode's credentials to another's endpoint.
+        """
+        with self.assertRaises(AdapterError) as caught:
+            self._provider_with_modes().resolve({"mode": "typo"})
+        self.assertEqual(caught.exception.code, "config")
+
+    def test_a_when_gated_field_is_still_required_when_mode_is_never_sent(self):
+        """The regression _is_visible's fallback exists to catch: a record
+
+        saved before mode_field existed (or an API caller that never sends
+        it) must not have its legacy-mode fields treated as hidden just
+        because "mode" itself is absent.
+        """
+        provider = Provider({
+            "id": "synthetic",
+            "name": "Synthetic",
+            "engine": {"adapter": "native", "protocol": "http"},
+            "capabilities": {"ipv4": True, "ipv6": True},
+            "fields": [
+                {
+                    "id": "mode",
+                    "type": "select",
+                    "label": "Verfahren",
+                    "default": "legacy",
+                    "options": [
+                        {"value": "legacy", "label": "legacy"},
+                        {"value": "rest", "label": "rest"},
+                    ],
+                },
+                {
+                    "id": "username",
+                    "type": "text",
+                    "label": "Benutzername",
+                    "required": True,
+                    "when": {"field": "mode", "equals": "legacy"},
+                },
+            ],
+            "mode_field": "mode",
+            "request": {"url": "https://legacy.example.org/update"},
+            "modes": {"rest": {"request": {"url": "https://rest.example.org/update"}}},
+        })
+
+        with self.assertRaises(ValidationProblem) as caught:
+            validate_values(provider, {})
+
+        self.assertIn("username", caught.exception.problems)
+
+
+class TestWhenFallbackOnARealProviderWithoutModeField(unittest.TestCase):
+    """_is_visible's fallback (tested above against a synthetic provider that
+    happens to carry mode_field) is not actually scoped to mode_field at all —
+    it fires for every `when`, on every provider that has one. OVH's own
+    `mode` field predates mode_field/modes entirely: a plain `when`-gated
+    select with a default, unrelated to the alternative-API-path feature.
+    This is the same fallback, exercised against that real, pre-existing
+    case, so the gap does not stay proven only in the synthetic one.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        cls.provider = load_registry().get("ovh")
+
+    def test_dynhost_credentials_are_required_when_mode_is_never_sent(self):
+        """mode defaults to "dynamic", and username/password are gated on
+        mode == dynamic. A values dict that never mentions mode — an old
+        record saved before this field existed, or a caller that omits it —
+        must be validated as if "dynamic" had been chosen explicitly, not as
+        if username/password belonged to a mode nobody picked."""
+        with self.assertRaises(ValidationProblem) as caught:
+            validate_values(self.provider, {})
+
+        self.assertIn("username", caught.exception.problems)
+        self.assertIn("password", caught.exception.problems)
+
+    def test_api_mode_fields_stay_hidden_when_mode_is_never_sent(self):
+        """The fallback resolves to the default mode, not to "every mode at
+        once" — app_key/app_secret/consumer_key belong to the "api" mode,
+        which nothing here selected."""
+        with self.assertRaises(ValidationProblem) as caught:
+            validate_values(self.provider, {})
+
+        for field_id in ("app_key", "app_secret", "consumer_key"):
+            self.assertNotIn(field_id, caught.exception.problems)
+
+
 class TestDyn(unittest.TestCase):
     """dyn's credentials were the wrong way round.
 
@@ -719,6 +874,13 @@ class TestRegistry(unittest.TestCase):
     def test_ipv4_only_providers_do_not_offer_ipv6(self):
         offered = [v["value"] for v in build_form(self.registry.get("namecheap"))["ip_versions"]]
         self.assertEqual(offered, ["ipv4"])
+
+    def test_dual_stack_providers_offer_dual_stack_first(self):
+        """The frontend preselects ip_versions[0] for a new record — a
+        provider that can do both must lead with "both", not "IPv4 only",
+        or every new dual-capable record starts out IPv4-only by accident."""
+        offered = [v["value"] for v in build_form(self.registry.get("dynu"))["ip_versions"]]
+        self.assertEqual(offered[0], "dual_stack")
 
     def test_secret_fields_are_flagged(self):
         form = build_form(self.registry.get("duckdns"))
@@ -903,9 +1065,18 @@ class TestValidation(unittest.TestCase):
 class StubCaller:
     """Stands in for HTTPCaller. Records what would have gone out."""
 
-    def __init__(self, status: int = 200, body: str = "good") -> None:
+    def __init__(
+        self, status: int = 200, body: str = "good",
+        *, responses: list[tuple[int, str]] | None = None,
+    ) -> None:
         self.status = status
         self.body = body
+        # A lookup-then-update sequence needs a different answer per call; a
+        # single fixed (status, body) cannot play both parts. Given, the
+        # queue is consumed call by call, falling back to status/body once
+        # exhausted — a test that only cares about the update, not the
+        # lookup, passes neither and gets the old single-answer behaviour.
+        self._responses = list(responses) if responses else None
         self.calls: list[dict] = []
         self.fail_with: AdapterError | None = None
 
@@ -913,6 +1084,8 @@ class StubCaller:
         if self.fail_with:
             raise self.fail_with
         self.calls.append({"url": url, **kwargs})
+        if self._responses:
+            return self._responses.pop(0)
         return self.status, self.body
 
 
@@ -1047,6 +1220,47 @@ class TestSecretsNeverLeak(HubTestCase):
         sent = json.dumps(self.caller.calls)
         self.assertIn(self.TOKEN, sent)
         self.assertNotIn(self.TOKEN, json.dumps(self.service.records_payload()))
+
+
+class TestAuthVariantSwitchForgetsTheOldSecret(HubTestCase):
+    """Switching auth variant must not leave the old variant's secret behind
+    forever. `forms.js:121-125` assumes a record only ever carries its active
+    variant's fields when it re-derives which variant is in use on reopen —
+    this is the backend half that has to make that assumption true."""
+
+    def add_dyn(self, **values):
+        return self.service.create_record(
+            {
+                "provider_id": "dyn",
+                "domain": "home.dyndns.example.org",
+                "owner": "@",
+                "ip_version": "ipv4",
+                "values": {"username": "someone", **values},
+                "auth_variant": "password",
+            }
+        )
+
+    def test_switching_away_from_a_variant_forgets_its_secret(self):
+        record = self.add_dyn(password="old-password")
+        self.assertTrue(self.secrets.has(record.id, "password"))
+
+        self.store.update_record(
+            record.id,
+            values={"username": "someone", "client_key": "new-key"},
+            auth_variant="client_key",
+        )
+
+        self.assertFalse(self.secrets.has(record.id, "password"))
+        self.assertEqual(self.secrets.get(record.id, "client_key"), "new-key")
+
+    def test_an_update_without_an_explicit_variant_does_not_touch_secrets(self):
+        """A caller that never names a variant must not be read as "switched
+        to the default" — that would delete the real, active secret."""
+        record = self.add_dyn(password="old-password")
+
+        self.store.update_record(record.id, label="renamed")
+
+        self.assertTrue(self.secrets.has(record.id, "password"))
 
 
 class TestUnreadableConfiguration(unittest.TestCase):
@@ -1420,6 +1634,107 @@ class TestDualStackOnOneAddressProviders(HubTestCase):
         self.assertEqual(status.state.value, "success")
         self.assertEqual(status.current_ipv4, "203.0.113.9")
         self.assertEqual(status.current_ipv6, "2001:db8::1")
+
+
+class TestModesThroughTheScheduler(HubTestCase):
+    """resolve() wired into the actual update path, not just tested in
+
+    isolation. Existing scheduler tests only ever run duckdns (a plain
+    request, no lookup/create/bindings) through _perform, so a mistake
+    specifically in how lookup/create/bindings reach the executor from a
+    chosen mode would not show up anywhere else.
+    """
+
+    def _register_synthetic_provider(self):
+        self.registry._providers["synthetic_modes"] = Provider({
+            "id": "synthetic_modes",
+            "name": "Synthetic Modes",
+            "engine": {"adapter": "native", "protocol": "http"},
+            "capabilities": {"ipv4": True, "ipv6": False},
+            "fields": [
+                {
+                    "id": "mode",
+                    "type": "select",
+                    "label": "Verfahren",
+                    "default": "legacy",
+                    "options": [
+                        {"value": "legacy", "label": "legacy"},
+                        {"value": "rest", "label": "rest"},
+                    ],
+                },
+            ],
+            "mode_field": "mode",
+            "lookup": [
+                {"url": "https://legacy.example.org/lookup", "select": {"take": "id"}, "into": "zone_id"},
+            ],
+            "request": {"url": "https://legacy.example.org/update/{zone_id}", "method": "PUT"},
+            "modes": {
+                "rest": {
+                    "lookup": [
+                        {
+                            "url": "https://rest.example.org/lookup",
+                            "select": {"take": "id"},
+                            "into": "domain_id",
+                        },
+                    ],
+                    "request": {
+                        "url": "https://rest.example.org/update/{domain_id}",
+                        "method": "POST",
+                        "body_type": "json",
+                        "body": {"marker": "{restish}"},
+                    },
+                    "bindings": {
+                        "restish": {"from": "rrtype", "map": {"A": "was-a"}},
+                    },
+                },
+            },
+        })
+
+    def _add_record(self, mode=None):
+        values = {} if mode is None else {"mode": mode}
+        return self.service.create_record({
+            "provider_id": "synthetic_modes",
+            "domain": "example.com",
+            "owner": "home",
+            "ip_version": "ipv4",
+            "values": values,
+        })
+
+    def test_a_record_without_a_stored_mode_uses_the_legacy_lookup_and_request(self):
+        self._register_synthetic_provider()
+        record = self._add_record()
+        self.caller._responses = [(200, '{"id": "zone-legacy"}'), (200, "good")]
+
+        status = self.scheduler.update(record.id)
+
+        self.assertEqual(status.state.value, "success")
+        urls = [call["url"] for call in self.caller.calls]
+        self.assertEqual(urls, [
+            "https://legacy.example.org/lookup",
+            "https://legacy.example.org/update/zone-legacy",
+        ])
+
+    def test_a_record_with_the_rest_mode_uses_its_own_lookup_request_and_bindings(self):
+        """The regression this whole feature is for: switching a record's
+
+        mode must reach the mode's own blocks end to end through the
+        scheduler, not just through resolve() in isolation.
+        """
+        self._register_synthetic_provider()
+        record = self._add_record(mode="rest")
+        self.caller._responses = [(200, '{"id": "domain-rest"}'), (200, "good")]
+
+        status = self.scheduler.update(record.id)
+
+        self.assertEqual(status.state.value, "success")
+        urls = [call["url"] for call in self.caller.calls]
+        self.assertEqual(urls, [
+            "https://rest.example.org/lookup",
+            "https://rest.example.org/update/domain-rest",
+        ])
+        # The update call, not the lookup: bindings apply to the request, not
+        # to finding the record.
+        self.assertEqual(self.caller.calls[1]["json_body"], {"marker": "was-a"})
 
 
 class StubSupervisor:

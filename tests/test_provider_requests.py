@@ -666,6 +666,36 @@ class TestLookups(unittest.TestCase):
         self.assertEqual(_render_deep("v{n}-x", {"n": 4}), "v4-x")
         self.assertEqual(_render_deep("{n}", {"n": 4}), 4)
 
+    def test_omit_if_empty_drops_a_named_key_but_nothing_else(self):
+        """A field named in omit_if_empty disappears from the body when it
+
+        would otherwise be sent as "" — for a provider whose JSON body names
+        the address field once per record type (ipv4Address vs.
+        ipv6Address, rather than one generic key plus {rrtype}), so the
+        update for one family does not carry an empty placeholder for the
+        other's key. An unnamed field keeps _render_deep's existing "" —
+        Servercow relies on exactly that for its apex record.
+        """
+        from dnsmith_hub.adapters.native import _drop_empty_keys, _render_deep
+
+        rendered = _render_deep(
+            {"ipv4Address": "{ipv4}", "ipv6Address": "{ipv6}", "name": "{subdomain}"},
+            {"ipv4": "203.0.113.7", "subdomain": ""},
+        )
+        self.assertEqual(rendered, {"ipv4Address": "203.0.113.7", "ipv6Address": "", "name": ""})
+        self.assertEqual(
+            _drop_empty_keys(rendered, ["ipv4Address", "ipv6Address"]),
+            {"ipv4Address": "203.0.113.7", "name": ""},
+        )
+        # A value that is genuinely "" but not named is left alone.
+        self.assertEqual(_drop_empty_keys(rendered, []), rendered)
+        # A key whose value is legitimately non-empty is never touched, named
+        # or not.
+        self.assertEqual(
+            _drop_empty_keys(rendered, ["ipv4Address", "ipv6Address", "name"])["ipv4Address"],
+            "203.0.113.7",
+        )
+
     def test_an_empty_optional_parameter_is_left_out(self):
         """Vercel's team ID is optional; sending teamId= would select no team."""
         caller = Caller()
@@ -688,6 +718,36 @@ class TestLookups(unittest.TestCase):
         self.assertEqual(headers["X-Auth-Email"], "user@example.org")
         self.assertEqual(headers["X-Auth-Key"], "sample-key")
         self.assertNotIn("Authorization", headers)
+
+
+class TestDynuLegacyGroup(unittest.TestCase):
+    """The classic IP-update path sends a Dynu group under Dynu's current name.
+
+    Dynu renamed the `location` parameter to `group` in 2020 (Dynu staff in
+    the community forum: "Location has been renamed to Group"); the current
+    protocol documentation lists only `group`. Whether `location` still works
+    as an alias is unmeasured, so the documented name is the one to send.
+    """
+
+    def _params(self, **fields):
+        data = manifest("dynu")
+        caller = Caller(body="good 203.0.113.7")
+        NativeAdapter(caller=caller).update_declarative(
+            data["request"], {"username": "user", "password": "secret", **fields},
+            ipv4="203.0.113.7", hostname="home.example.com",
+            domain="example.com", owner="home",
+        )
+        return caller.update["params"]
+
+    def test_a_group_is_sent_under_the_name_dynu_documents(self):
+        params = self._params(group="work")
+        self.assertEqual(params.get("group"), "work")
+        self.assertNotIn("location", params)
+
+    def test_no_group_means_no_group_parameter_at_all(self):
+        params = self._params()
+        self.assertNotIn("group", params)
+        self.assertNotIn("location", params)
 
 
 if __name__ == "__main__":
@@ -742,6 +802,32 @@ class TestLiveProbe(unittest.TestCase):
         self.assertEqual(result.checked, "credentials")
         self.assertEqual(len(caller.calls), 1)
         self.assertEqual(caller.calls[0]["params"]["name"], "home.example.com")
+
+    def test_a_probe_finds_the_record_at_the_apex(self):
+        """An apex record (owner "@", subdomain "") must not be reported as
+
+        missing just because the probe's context carries it as an empty
+        string. `_probe_lookup` merges `context` overrides with `if value`,
+        which drops falsy-but-real overrides like `subdomain: ""` — the
+        lookup then filters on the placeholder default ("host") instead of
+        the real, empty subdomain, finds nothing, and wrongly claims the
+        record does not exist yet.
+        """
+        spec = self.spec("linode")
+        spec["context"] = {
+            "domain": "example.com", "zone": "example.com", "owner": "@",
+            "subdomain": "", "hostname": "example.com",
+        }
+        caller = Caller(lookups=[
+            '{"data": [{"id": 77, "domain": "example.com", "status": "active"}]}',
+            '{"data": [{"id": 991, "name": "", "type": "A"}]}',
+        ])
+
+        result = NativeAdapter(caller=caller).probe(spec, "live")
+
+        self.assertTrue(result.ok, result.error)
+        self.assertIn("gefunden", result.message)
+        self.assertNotIn("noch nicht", result.message)
 
     def test_a_probe_never_writes(self):
         """Only the read steps run — the update itself must not."""

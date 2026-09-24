@@ -19,6 +19,8 @@ from typing import Any
 
 import yaml
 
+from .adapters.base import AdapterError
+
 # Field types whose value is a credential and therefore never returned.
 SECRET_TYPES = frozenset({"secret", "multiline_secret"})
 
@@ -35,6 +37,23 @@ class ValidationProblem(Exception):
     def __init__(self, problems: dict[str, str]) -> None:
         super().__init__("; ".join(f"{field}: {text}" for field, text in problems.items()))
         self.problems = problems
+
+
+@dataclass(frozen=True)
+class ResolvedMode:
+    """The protocol/request/lookup/create/bindings blocks one mode of a
+
+    provider resolves to. Never partial: a manifest's own top-level blocks
+    and each entry of ``modes`` carry the same five keys, and resolve()
+    always returns exactly one of them whole — nothing is merged between a
+    mode and the default, or between two modes.
+    """
+
+    protocol: str | None
+    request: dict[str, Any] | None
+    lookup: list[dict[str, Any]] | None
+    create: dict[str, Any] | None
+    bindings: dict[str, Any] | None
 
 
 @dataclass(frozen=True)
@@ -88,6 +107,16 @@ class Provider:
         return self.manifest.get("create")
 
     @property
+    def mode_field(self) -> str | None:
+        """ID of the select field that chooses among modes, if this provider has any."""
+        return self.manifest.get("mode_field")
+
+    @property
+    def modes(self) -> dict[str, dict[str, Any]]:
+        """Alternatives to the manifest's own top-level blocks, by id."""
+        return self.manifest.get("modes") or {}
+
+    @property
     def ported(self) -> bool:
         return self.adapter != "unported"
 
@@ -122,6 +151,53 @@ class Provider:
         parts = [self.id, self.name, self.manifest.get("description", "")]
         parts.extend(self.categories)
         return " ".join(parts).lower()
+
+    def resolve(self, values: dict[str, Any]) -> ResolvedMode:
+        """The blocks that apply for whatever mode `values` names.
+
+        Absent, empty, or equal to mode_field's own default all count as the
+        default mode — the manifest's own top-level blocks — which is what
+        covers every record saved before modes existed, and any API caller
+        that has never heard of mode_field, without either needing a
+        migration. A value that names neither the default nor a real mode is
+        refused rather than quietly treated as the default: falling back
+        silently would let a typo'd or stale mode send one mode's
+        credentials to another's endpoint.
+        """
+        default = ResolvedMode(
+            protocol=self.protocol,
+            request=self.request,
+            lookup=self.lookup,
+            create=self.create,
+            bindings=self.bindings,
+        )
+
+        mode_field = self.mode_field
+        if mode_field is None:
+            return default
+
+        chosen = values.get(mode_field)
+        if chosen in (None, ""):
+            return default
+
+        default_id = (self.field(mode_field) or {}).get("default")
+        if chosen == default_id:
+            return default
+
+        block = self.modes.get(chosen)
+        if block is None:
+            raise AdapterError(
+                "config",
+                f"{self.name} kennt das Verfahren {chosen!r} nicht.",
+            )
+
+        return ResolvedMode(
+            protocol=block.get("protocol", self.protocol),
+            request=block.get("request"),
+            lookup=block.get("lookup"),
+            create=block.get("create"),
+            bindings=block.get("bindings"),
+        )
 
 
 class Registry:
@@ -266,6 +342,14 @@ def build_form(provider: Provider) -> dict[str, Any]:
         # read-only; for the rest the update IS the write, so there is nothing
         # safe to try. The form says which kind this is, so the button can be
         # honest before it is pressed rather than after.
+        #
+        # Deliberately reads the manifest's own top-level lookup, not
+        # provider.resolve(...)'s — a provider with modes gets one label for
+        # every mode, even where a mode's own lookup differs from the
+        # default's. Fine while a mode with a lookup is new enough to be
+        # marked untested anyway; worth revisiting (a label and a probe per
+        # mode) once that stops being true for whichever provider first
+        # needs it.
         "live_test": bool(provider.lookup),
         "auth": None,
         "fields": [],
@@ -323,14 +407,21 @@ def _offered_ip_versions(capabilities: dict[str, Any]) -> list[dict[str, str]]:
     A provider that cannot do IPv6 must not be offered it — namecheap is the
     current example. Offering it would produce a record that can never
     succeed, and a user with no way to tell why.
+
+    Dual-stack comes first when a provider can do both: the frontend
+    preselects whichever option this list returns first (`app.js`), and most
+    home networks have working IPv6 today, so defaulting to the fuller answer
+    beats defaulting to IPv4-only and leaving IPv6 support undiscovered.
     """
+    can_both = bool(capabilities.get("ipv4")) and bool(capabilities.get("ipv6"))
     offered = []
+    if can_both:
+        offered.append({"value": "dual_stack", "label": "IPv4 und IPv6"})
     if capabilities.get("ipv4"):
         offered.append({"value": "ipv4", "label": "Nur IPv4"})
     if capabilities.get("ipv6"):
         offered.append({"value": "ipv6", "label": "Nur IPv6"})
-    if capabilities.get("ipv4") and capabilities.get("ipv6"):
-        offered.append({"value": "dual_stack", "label": "IPv4 und IPv6"})
+    if can_both:
         offered.append(
             {
                 "value": "ipv4_or_ipv6",
@@ -395,7 +486,7 @@ def apply_defaults(provider: Provider, values: dict[str, Any]) -> dict[str, Any]
             continue
         if filled.get(field["id"]) not in (None, ""):
             continue
-        if not _is_visible(field, filled):
+        if not _is_visible(provider, field, filled):
             continue
         filled[field["id"]] = field["default"]
     return filled
@@ -474,7 +565,7 @@ def validate_values(
     for field in provider.fields:
         field_id = field["id"]
 
-        if not _is_visible(field, values):
+        if not _is_visible(provider, field, values):
             continue
 
         raw = values.get(field_id)
@@ -519,11 +610,27 @@ def _required_variant_fields(
     return set()
 
 
-def _is_visible(field: dict[str, Any], values: dict[str, Any]) -> bool:
+def _is_visible(provider: Provider, field: dict[str, Any], values: dict[str, Any]) -> bool:
+    """Whether `field`'s `when` condition is met.
+
+    A record written before its controlling field existed, or submitted by a
+    caller that never sent it, simply lacks a value for it — that is not the
+    same as the condition being unmet. The controlling field's own default is
+    what a fresh form shows and what such a record implicitly meant, so an
+    absent value falls back to it rather than to None, which nothing in a
+    manifest ever equals. Only a value that is genuinely absent falls back;
+    one explicitly cleared to "" is not, matching how required-ness elsewhere
+    in this module already treats "" as "nothing supplied".
+    """
     condition = field.get("when")
     if not condition:
         return True
-    return values.get(condition["field"]) == condition["equals"]
+    actual = values.get(condition["field"])
+    if actual is None:
+        source = provider.field(condition["field"])
+        if source is not None:
+            actual = source.get("default")
+    return actual == condition["equals"]
 
 
 def _check_value(field: dict[str, Any], raw: Any) -> str | None:

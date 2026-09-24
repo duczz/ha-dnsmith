@@ -190,7 +190,7 @@ bash tests/run.sh                 # alle Suiten
 bash scripts/test-build.sh        # baut das Image und prüft es (Docker/WSL)
 ```
 
-Kein pytest: die Suiten sollen auf einem nackten Python laufen. Drei der fünf
+Kein pytest: die Suiten sollen auf einem nackten Python laufen. Vier der sechs
 brauchen nur PyYAML und jsonschema und sichern genau den Teil ab, den man beim
 Hinzufügen eines Anbieters anfasst; die beiden übrigen fahren den Hub hoch und
 überspringen sich, wenn seine Abhängigkeiten fehlen.

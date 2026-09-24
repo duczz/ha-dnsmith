@@ -80,7 +80,7 @@ def _await_action(api: Api, answer: Any, sleep) -> None:
     deadline = time.monotonic() + POLL_BUDGET
     while time.monotonic() < deadline:
         sleep(POLL_INTERVAL)
-        current = (api.json(f"{BASE}/actions/{action['id']}") or {}).get("action") or {}
+        current = (api.json(f"{BASE}/zones/actions/{action['id']}") or {}).get("action") or {}
         _raise_if_failed(current)
         if current.get("status") != "running":
             return

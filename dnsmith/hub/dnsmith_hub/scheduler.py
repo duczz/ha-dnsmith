@@ -281,7 +281,8 @@ class Scheduler:
 
         if provider.adapter == "python":
             # Ein Modul bekommt genau eine Adressfamilie je Aufruf: sein
-            # Kontext traegt einen Recordtyp, nicht zwei.
+            # Kontext traegt einen Recordtyp, nicht zwei. Module kennen keine
+            # Modi (manifest_merge.py verlangt adapter: native dafuer).
             if ipv4 and ipv6:
                 first = self._perform_module(provider, record, values, ipv4, None)
                 if not first.ok:
@@ -289,7 +290,13 @@ class Scheduler:
                 return self._perform_module(provider, record, values, None, ipv6)
             return self._perform_module(provider, record, values, ipv4, ipv6)
 
-        if provider.protocol == "dyndns2" and provider.request is None:
+        # resolve() is what a record's own mode value turns into: the
+        # manifest's top-level blocks for a record without one (or with the
+        # default), or one of `modes` — never a mix, and never the mistake of
+        # asking the executor to run a mode this manifest does not have.
+        resolved = provider.resolve(values)
+
+        if resolved.protocol == "dyndns2" and resolved.request is None:
             return self.native.update_dyndns2(
                 server=values["server"],
                 username=values["username"],
@@ -302,21 +309,21 @@ class Scheduler:
                 hostname_parameter=values.get("hostname_parameter", "hostname"),
             )
 
-        if provider.protocol == "custom_http":
+        if resolved.protocol == "custom_http":
             return self.native.update_custom_http(
                 hostname=record.fqdn, ipv4=ipv4, ipv6=ipv6,
                 **{key: value for key, value in values.items() if key != "hostname"},
             )
 
-        request = provider.request or {}
+        request = resolved.request or {}
 
         def send(one_v4: str | None, one_v6: str | None):
             return self.native.update_declarative(
                 request,
                 values,
-                lookup=provider.lookup,
-                create=provider.create,
-                bindings=provider.bindings,
+                lookup=resolved.lookup,
+                create=resolved.create,
+                bindings=resolved.bindings,
                 ipv4=one_v4,
                 ipv6=one_v6,
                 hostname=record.fqdn,
@@ -331,7 +338,7 @@ class Scheduler:
         # {v6prefix} — and a dual-stack record then simply calls twice. The
         # old Go engine did the same thing by keeping two records per entry.
         if ipv4 and ipv6 and _one_address_at_a_time(
-            {"request": request, "lookup": provider.lookup, "create": provider.create}
+            {"request": request, "lookup": resolved.lookup, "create": resolved.create}
         ):
             first = send(ipv4, None)
             if not first.ok:

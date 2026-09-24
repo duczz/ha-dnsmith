@@ -279,6 +279,69 @@
     },
     "lookup": {
       "description": "Calls made before the update, each binding a value the update needs — a zone ID, a record ID. Steps run in order and may use what earlier steps bound. This is what lets a two-step API stay data rather than becoming a module.",
+      "$ref": "#/$defs/lookup"
+    },
+    "create": {
+      "description": "The call that creates the record, used when a lookup with on_missing: create found nothing.",
+      "$ref": "#/$defs/request"
+    },
+    "bindings": {
+      "description": "Extra values derived from the others, for providers that spell something standard their own way — a record type as 0 and 1 rather than A and AAAA. The alternative would be the executor learning a provider's name, which is the thing this design exists to avoid.",
+      "$ref": "#/$defs/bindings"
+    },
+    "modes": {
+      "description": "Alternative ways to perform the update, chosen per record by the select field named in mode_field. The manifest's own top-level engine.protocol/request/lookup/create/bindings are the default mode — used whenever a record names no mode, an unrecognised one, or (for every record written before this existed) none at all. Each entry here replaces those wholesale for its id; nothing is merged between a mode and the default, or between two modes. Exists so a provider whose upstream API changed shape (a legacy endpoint next to a newer REST one, say) can offer both without either becoming its own catalogue entry or losing the record's IP history when the user switches.",
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "request"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "protocol": {
+            "description": "Overrides engine.protocol for this mode. Omit to keep the manifest's own.",
+            "enum": [
+              "dyndns2",
+              "http",
+              "custom_http"
+            ]
+          },
+          "request": {
+            "$ref": "#/$defs/request"
+          },
+          "lookup": {
+            "$ref": "#/$defs/lookup"
+          },
+          "create": {
+            "$ref": "#/$defs/request"
+          },
+          "bindings": {
+            "$ref": "#/$defs/bindings"
+          }
+        }
+      },
+      "propertyNames": {
+        "pattern": "^[a-z0-9_]+$"
+      }
+    },
+    "mode_field": {
+      "description": "ID of this provider's select field whose value chooses a mode. Its options must be exactly the keys of modes, one-to-one, and its default is the mode a record gets when the field is left at default. Required together with modes; meaningless without it.",
+      "type": "string",
+      "pattern": "^[a-z0-9_]+$"
+    }
+  },
+  "dependentRequired": {
+    "modes": [
+      "mode_field"
+    ],
+    "mode_field": [
+      "modes"
+    ]
+  },
+  "$defs": {
+    "lookup": {
       "type": "array",
       "minItems": 1,
       "maxItems": 4,
@@ -333,6 +396,13 @@
               "null"
             ]
           },
+          "omit_if_empty": {
+            "description": "JSON body keys to drop entirely, rather than send as \"\", when their templated value comes out empty. The default is to send \"\" — some providers read that as \"clear this field\" on purpose — so this exists for the opposite case: a provider that reads a family-specific key's mere presence as which record type is meant.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
           "select": {
             "description": "How to find the value in the answer.",
             "type": "object",
@@ -375,12 +445,7 @@
         }
       }
     },
-    "create": {
-      "description": "The call that creates the record, used when a lookup with on_missing: create found nothing.",
-      "$ref": "#/$defs/request"
-    },
     "bindings": {
-      "description": "Extra values derived from the others, for providers that spell something standard their own way — a record type as 0 and 1 rather than A and AAAA. The alternative would be the executor learning a provider's name, which is the thing this design exists to avoid.",
       "type": "object",
       "additionalProperties": {
         "type": "object",
@@ -417,9 +482,7 @@
       "propertyNames": {
         "pattern": "^[a-z0-9_]+$"
       }
-    }
-  },
-  "$defs": {
+    },
     "field": {
       "type": "object",
       "required": [
@@ -678,6 +741,13 @@
             "string",
             "null"
           ]
+        },
+        "omit_if_empty": {
+          "description": "JSON body keys to drop entirely, rather than send as \"\", when their templated value comes out empty. The default is to send \"\" — some providers read that as \"clear this field\" on purpose — so this exists for the opposite case: a provider that reads a family-specific key's mere presence as which record type is meant.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
         },
         "success": {
           "description": "How to tell success from failure. Without this the executor falls back to the 2xx status code, which is wrong for DynDNS2 — it answers \"badauth\" with a 200.",

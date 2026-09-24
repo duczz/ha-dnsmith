@@ -118,11 +118,14 @@ export function buildForm(form, { existing = null, problems = {} } = {}) {
     }
   }
 
-  // A record only ever stores the fields of the variant it was created
-  // with — the other variant's fields are simply absent. That makes any
-  // field present on `existing` proof of which variant is actually in use,
-  // which is why this can be a lookup rather than something the server has
-  // to remember separately.
+  // A record stores only the fields of its active variant — the other
+  // variant's fields are absent. The server enforces that on save
+  // (store.py::update_record drops the other variant's secrets whenever an
+  // explicit auth_variant is sent), so any field present on `existing` is
+  // proof of which variant is in use, and this can be a lookup rather than
+  // something the server has to remember separately. Records saved before
+  // that change can still carry both variants' secrets; the first save with
+  // an explicit variant cleans them up.
   if (form.auth && existing) {
     const present = [
       ...(existing.fields ? Object.keys(existing.fields) : []),

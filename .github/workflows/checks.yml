@@ -33,7 +33,7 @@ jobs:
           python-version: "3.12"
 
       - name: Abhängigkeiten
-        # Die des Hubs dazu, sonst überspringen sich zwei der fünf Suiten
+        # Die des Hubs dazu, sonst überspringen sich zwei der sechs Suiten
         # selbst und der Lauf sieht grüner aus als er ist.
         run: |
           pip install --quiet pyyaml jsonschema

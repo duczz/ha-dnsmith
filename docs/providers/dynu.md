@@ -27,4 +27,4 @@ Einordnung: kommerziell, kostenlos, DynDNS2
 
 ---
 
-Stand: 16.09.2026.
+Stand: 24.09.2026.

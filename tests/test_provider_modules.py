@@ -1,6 +1,6 @@
 """The providers that could not stay data, and why.
 
-Ten of sixty need a module. Each of these tests names the reason in its own
+Ten of sixty-four need a module. Each of these tests names the reason in its own
 docstring, because "this one has a module" is only defensible as long as the
 reason is written down and still true — a module whose reason has evaporated
 should go back to being a manifest.
@@ -258,7 +258,7 @@ class TestHetzner(unittest.TestCase):
                                 sleep=slept.append)
 
         self.assertTrue(outcome.ok)
-        self.assertTrue(caller.calls[-1]["url"].endswith("/v1/actions/9"))
+        self.assertTrue(caller.calls[-1]["url"].endswith("/v1/zones/actions/9"))
         self.assertEqual(len(slept), 2)
 
     def test_a_failed_action_is_reported_even_though_the_post_succeeded(self):
