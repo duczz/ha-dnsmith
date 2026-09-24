@@ -14,7 +14,6 @@ Einordnung: Registrar
 |---|---|
 | IP-Versionen | IPv4 |
 | Hinweis | Dieser Anbieter kann **kein IPv6**. |
-| IPv6-Suffix | nein |
 | TTL einstellbar | nein |
 | Proxy-Schalter | nein |
 

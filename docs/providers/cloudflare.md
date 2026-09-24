@@ -13,7 +13,6 @@ Einordnung: Cloud-DNS, DNS-Anbieter
 | | |
 |---|---|
 | IP-Versionen | IPv4 und IPv6 |
-| IPv6-Suffix | ja |
 | Wildcard-Einträge | ja |
 | TTL einstellbar | ja |
 | Proxy-Schalter | ja |

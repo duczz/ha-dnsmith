@@ -13,7 +13,6 @@ Einordnung: kostenlos, DNS-Anbieter, IPv6-orientiert
 | | |
 |---|---|
 | IP-Versionen | IPv4 und IPv6 |
-| IPv6-Suffix | ja |
 | TTL einstellbar | nein |
 | Proxy-Schalter | nein |
 

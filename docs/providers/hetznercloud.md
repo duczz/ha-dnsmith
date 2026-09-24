@@ -13,7 +13,6 @@ Einordnung: deutschsprachig, Cloud-DNS
 | | |
 |---|---|
 | IP-Versionen | IPv4 und IPv6 |
-| IPv6-Suffix | ja |
 | TTL einstellbar | ja |
 | Proxy-Schalter | nein |
 

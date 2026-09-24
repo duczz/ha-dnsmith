@@ -13,7 +13,6 @@ Einordnung: deutschsprachig, kostenlos, DynDNS2
 | | |
 |---|---|
 | IP-Versionen | IPv4 und IPv6 |
-| IPv6-Suffix | nein |
 | TTL einstellbar | nein |
 | Proxy-Schalter | nein |
 

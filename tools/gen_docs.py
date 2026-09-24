@@ -93,8 +93,8 @@ def capability_lines(manifest: dict) -> list[str]:
         # updates, with nothing anywhere saying why.
         lines.append("| Hinweis | Dieser Anbieter kann **kein IPv6**. |")
 
+    # ipv6_suffix stays out of the table: no code applies it yet, so a "ja" would be a promise.
     for key, label in (
-        ("ipv6_suffix", "IPv6-Suffix"),
         ("wildcard", "Wildcard-Einträge"),
         ("ttl", "TTL einstellbar"),
         ("proxy", "Proxy-Schalter"),
