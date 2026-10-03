@@ -1,0 +1,45 @@
+# Quelle fuer providers/loopia.yaml - von Hand gepflegt.
+# Nach jeder Aenderung: python3 tools/manifest_merge.py
+name: Loopia
+description: Schwedischer Registrar und Hoster. Die Domain muss vorher für DynDNS vorbereitet werden.
+website: https://www.loopia.com
+categories:
+- registrar
+- dns_provider
+engine:
+  adapter: native
+  protocol: dyndns2
+capabilities:
+  ipv4: true
+  ipv6: true
+  ipv6_suffix: true
+  ttl: false
+  proxy: false
+request:
+  url: https://dyndns.loopia.se/
+  auth:
+    mode: basic
+    username: '{username}'
+    password: '{password}'
+  params:
+    hostname: '{hostname}'
+    myip: '{ip}'
+  success:
+    vocabulary: dyndns2
+fields:
+- id: username
+  type: text
+  label: Kundzon-Benutzername
+  required: true
+  help: 'Dein Login für die Loopia Kundzon. Die Domain muss vorher für DynDNS vorbereitet sein: ein A-Eintrag
+    unter @ und ein CNAME unter *.
+
+    '
+- id: password
+  type: secret
+  label: Kundzon-Passwort
+  required: true
+  help: 'Das Passwort der Loopia Kundzon. Meldest du dich sonst nur per BankID an, musst du unter Kontoinställningar
+    erst ein Passwort setzen.
+
+    '

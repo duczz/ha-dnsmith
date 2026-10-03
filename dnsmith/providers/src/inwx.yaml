@@ -1,0 +1,43 @@
+# Quelle fuer providers/inwx.yaml - von Hand gepflegt.
+# Nach jeder Aenderung: python3 tools/manifest_merge.py
+name: INWX
+description: Deutscher Registrar. Der DynDNS-Zugang wird getrennt vom Kundenkonto angelegt.
+website: https://www.inwx.com
+categories:
+- german
+- registrar
+engine:
+  adapter: native
+  protocol: dyndns2
+capabilities:
+  ipv4: true
+  ipv6: true
+  ipv6_suffix: true
+  ttl: false
+  proxy: false
+request:
+  url: https://dyndns.inwx.com/nic/update
+  auth:
+    mode: basic
+    username: '{username}'
+    password: '{password}'
+  params:
+    hostname: '{hostname}'
+    myip: '{ipv4}'
+    myipv6: '{ipv6}'
+  success:
+    vocabulary: dyndns2
+fields:
+- id: username
+  type: text
+  label: DynDNS-Benutzername
+  required: true
+  help: 'Nicht dein INWX-Konto-Login. Im Kundenkonto links unter "DynDNS" per "Konto hinzufügen" einen
+    eigenen Zugang anlegen; den Benutzernamen vergibst du dabei selbst.
+
+    '
+- id: password
+  type: secret
+  label: DynDNS-Passwort
+  required: true
+  help: Das Passwort dieses DynDNS-Zugangs, nicht dein INWX-Kontopasswort.

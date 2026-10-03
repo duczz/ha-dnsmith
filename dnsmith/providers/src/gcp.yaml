@@ -1,0 +1,41 @@
+# Quelle fuer providers/gcp.yaml - von Hand gepflegt.
+# Nach jeder Aenderung: python3 tools/manifest_merge.py
+name: Google Cloud DNS
+description: Google Cloud DNS. Die Anmeldung erfolgt über die JSON-Schlüsseldatei eines Dienstkontos.
+website: https://cloud.google.com/dns
+categories:
+- cloud_dns
+engine:
+  adapter: python
+  module: gcp
+capabilities:
+  ipv4: true
+  ipv6: true
+  ipv6_suffix: true
+  ttl: false
+  proxy: false
+fields:
+- id: project
+  type: text
+  label: Projekt-ID
+  required: true
+  placeholder: mein-projekt-123456
+  help: Die Projekt-ID, nicht der Anzeigename. Steht in der Cloud Console in der Projektauswahl.
+- id: zone
+  type: text
+  label: Cloud-DNS-Zone
+  required: true
+  placeholder: meine-zone
+  help: 'Der Name der verwalteten Zone, nicht der Domainname. Unter Network Services → Cloud DNS in der
+    Spalte "Zone name".
+
+    '
+- id: credentials
+  type: multiline_secret
+  label: Dienstkonto-JSON
+  required: true
+  help: 'Der komplette Inhalt der JSON-Schlüsseldatei eines Dienstkontos, nicht nur die Key-ID. Unter
+    IAM & Admin → Service Accounts → Keys → Add key → Create new key (JSON). Das Konto braucht Schreibrechte
+    auf die DNS-Einträge.
+
+    '

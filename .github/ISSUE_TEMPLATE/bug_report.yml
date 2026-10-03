@@ -1,0 +1,88 @@
+name: 🐛 Fehler melden
+description: Etwas funktioniert nicht wie beschrieben
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Danke fürs Melden. **Bitte keine echten Zugangsdaten einfügen** — weder
+        im Protokoll noch in einem Konfigurations-Export. Sicherheitslücken
+        gehören nicht hierher, sondern in ein
+        [privates Advisory](https://github.com/duczz/ha-dnsmith/security/advisories/new).
+
+  - type: textarea
+    id: was
+    attributes:
+      label: Was passiert?
+      description: Und was hättest du stattdessen erwartet?
+    validations:
+      required: true
+
+  - type: textarea
+    id: schritte
+    attributes:
+      label: Schritte zum Nachstellen
+      placeholder: |
+        1. Anbieter X hinzufügen
+        2. Auf "Verbindung testen" klicken
+        3. ...
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: DNSmith-Version
+      description: Steht im App-Reiter oder in `dnsmith/config.yaml`
+      placeholder: "0.1.0"
+    validations:
+      required: true
+
+  - type: input
+    id: anbieter
+    attributes:
+      label: Betroffener Anbieter
+      description: Die ID aus der Liste, falls der Fehler einen bestimmten Anbieter betrifft
+      placeholder: "dynu, cloudflare, …"
+
+  - type: dropdown
+    id: installation
+    attributes:
+      label: Installationsart
+      options:
+        - Home Assistant OS
+        - Home Assistant Supervised
+        - weiß nicht
+    validations:
+      required: true
+
+  - type: dropdown
+    id: arch
+    attributes:
+      label: Architektur
+      options:
+        - aarch64
+        - amd64
+        - weiß nicht
+    validations:
+      required: true
+
+  - type: textarea
+    id: log
+    attributes:
+      label: Protokoll
+      description: >
+        Einstellungen → Add-ons → DNSmith → Protokoll. Für mehr Details die
+        Protokollstufe in den DNSmith-Einstellungen auf `debug` stellen.
+        Zugangsdaten werden herausgefiltert — sieh den Auszug trotzdem durch.
+      render: text
+
+  - type: checkboxes
+    id: bestaetigung
+    attributes:
+      label: Vorher geprüft
+      options:
+        - label: Ich habe die [Fehlersuche](https://github.com/duczz/ha-dnsmith/blob/main/dnsmith/DOCS.md#fehlersuche) gelesen
+          required: true
+        - label: Mein Beitrag enthält keine echten Zugangsdaten
+          required: true

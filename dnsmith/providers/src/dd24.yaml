@@ -1,0 +1,41 @@
+# Quelle fuer providers/dd24.yaml - von Hand gepflegt.
+# Nach jeder Aenderung: python3 tools/manifest_merge.py
+name: domaindiscount24
+description: Deutscher Registrar. Dynamic DNS wird je Subdomain eingeschaltet.
+website: https://www.domaindiscount24.com
+categories:
+- german
+- registrar
+engine:
+  adapter: native
+  protocol: http
+capabilities:
+  ipv4: true
+  ipv6: true
+  ipv6_suffix: true
+  ttl: false
+  proxy: false
+rate_limit:
+  note: Nach einem erfolgreichen Update mindestens 30 Minuten bis zum nächsten Versuch — dd24 lehnt frühere
+    Anfragen aus Sicherheitsgründen ab.
+  min_interval: 30m
+request:
+  url: https://dynamicdns.key-systems.net/update.php
+  params:
+    hostname: '{hostname}'
+    password: '{password}'
+    ip: '{ip}'
+  failures:
+    authorization failed: auth
+  success:
+    status:
+    - 200
+fields:
+- id: password
+  type: secret
+  label: Dynamic-DNS-Passwort
+  required: true
+  help: 'Nicht dein Kundenkonto-Passwort. Du vergibst es beim Aktivieren von Dynamic DNS: Domains → Meine
+    Domains → Domain wählen → Reiter "Dynamic DNS". Dort lässt es sich auch neu setzen.
+
+    '

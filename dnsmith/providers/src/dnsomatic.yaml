@@ -1,0 +1,56 @@
+# Quelle fuer providers/dnsomatic.yaml - von Hand gepflegt.
+# Nach jeder Aenderung: python3 tools/manifest_merge.py
+name: DNS-O-Matic
+description: 'Kostenloser Verteiler: ein Update an DNS-O-Matic wird an mehrere DDNS-Dienste weitergereicht.
+  Die Zugangsdaten sind die eines OpenDNS-Kontos.
+
+  Wird abgeschaltet: Cisco/OpenDNS kündigte den Dienst per E-Mail vom 05.09.2026 mit 30 Tagen Frist —
+  das Ende liegt also um den 05.10.2026, zusammen mit der Löschung aller DNS-O-Matic-Kontodaten. Die OpenDNS-Logins
+  selbst bleiben bestehen. Auf dnsomatic.com steht dazu nichts (Stand 14.09.2026), die Mail wurde aber
+  von mehreren Nutzern unabhängig voneinander im Wortlaut veröffentlicht. Für neue Einrichtungen besser
+  einen anderen Anbieter wählen.'
+website: https://www.dnsomatic.com
+categories:
+- free_ddns
+- dyndns2_compatible
+engine:
+  adapter: native
+  protocol: dyndns2
+capabilities:
+  ipv4: true
+  ipv6: true
+  ipv6_suffix: true
+  ttl: false
+  proxy: false
+rate_limit:
+  note: DNS-O-Matic kennt die Antwort "abuse" und sperrt vorübergehend, wenn zu häufig aktualisiert wird.
+request:
+  url: https://updates.dnsomatic.com/nic/update
+  auth:
+    mode: basic
+    username: '{username}'
+    password: '{password}'
+  params:
+    hostname: '{hostname}'
+    myip: '{ip}'
+    wildcard: NOCHG
+    mx: NOCHG
+    backmx: NOCHG
+  success:
+    vocabulary: dyndns2
+fields:
+- id: username
+  type: text
+  label: Benutzername
+  required: true
+  help: 'Dein DNS-O-Matic-Login (ein OpenDNS-Konto) — nicht der Benutzername des Dienstes, an den DNS-O-Matic
+    weiterleitet.
+
+    '
+- id: password
+  type: secret
+  label: Konto-Passwort
+  required: true
+  help: 'Das Passwort deines DNS-O-Matic-Kontos. Nicht die Passwörter der verknüpften Dienste eintragen.
+
+    '

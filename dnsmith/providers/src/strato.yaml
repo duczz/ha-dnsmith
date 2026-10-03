@@ -1,0 +1,39 @@
+# Quelle fuer providers/strato.yaml - von Hand gepflegt.
+# Nach jeder Aenderung: python3 tools/manifest_merge.py
+name: STRATO
+description: Großer deutscher Hoster. Als Benutzername dient eine Domain aus dem eigenen Paket, nicht
+  ein Login-Name.
+website: https://www.strato.de
+categories:
+- german
+- dns_provider
+engine:
+  adapter: native
+  protocol: dyndns2
+capabilities:
+  ipv4: true
+  ipv6: true
+  ipv6_suffix: true
+  ttl: false
+  proxy: false
+request:
+  url: https://dyndns.strato.com/nic/update
+  auth:
+    mode: basic
+    username: '{domain}'
+    password: '{password}'
+  params:
+    hostname: '{hostname}'
+    myip: '{ip}'
+  success:
+    vocabulary: dyndns2
+fields:
+- id: password
+  type: secret
+  label: DynDNS-Passwort
+  required: true
+  help: 'Nicht dein STRATO-Kundenpasswort. Ein eigenes DynDNS-Passwort vergibst du im Kunden-Login unter
+    "Sicherheit" → "Passwörter festlegen". DynDNS selbst schaltest du bei der Domain unter DNS → Dynamic
+    DNS frei.
+
+    '

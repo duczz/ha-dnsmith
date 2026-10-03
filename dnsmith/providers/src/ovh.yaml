@@ -1,0 +1,105 @@
+# Quelle fuer providers/ovh.yaml - von Hand gepflegt.
+# Nach jeder Aenderung: python3 tools/manifest_merge.py
+name: OVHcloud
+description: 'Französischer Hoster mit zwei Wegen: dem einfachen DynHost und der vollen API.'
+website: https://www.ovhcloud.com
+categories:
+- dns_provider
+- registrar
+engine:
+  adapter: python
+  module: ovh
+capabilities:
+  ipv4: true
+  ipv6: true
+  ipv6_suffix: true
+  ttl: false
+  proxy: false
+fields:
+- id: mode
+  type: select
+  label: Verfahren
+  default: dynamic
+  options:
+  - value: dynamic
+    label: DynHost (einfach, empfohlen)
+  - value: api
+    label: OVH-API (für Zonen ohne DynHost)
+  help: 'DynHost ist der übliche Weg und braucht nur Benutzername und Passwort. Die API brauchst du, wenn
+    die Zone kein DynHost unterstützt; dafür legst du eine OVH-Anwendung an.
+
+    '
+- id: username
+  type: text
+  label: DynHost-Benutzername
+  required: true
+  when:
+    field: mode
+    equals: dynamic
+  help: 'Nicht dein OVH-Kundenkennzeichen. Im OVH-Kundencenter unter Web Cloud → Domains → DNS-Zone →
+    Reiter DynHost → Zugriff verwalten → Benutzernamen erstellen. Du vergibst dabei ein Suffix.
+
+    '
+- id: password
+  type: secret
+  label: DynHost-Passwort
+  required: true
+  when:
+    field: mode
+    equals: dynamic
+  help: 'Nicht dein OVH-Konto-Passwort. Du legst es im selben Dialog fest, in dem du den DynHost-Benutzer
+    anlegst. Es gilt nur für DynHost-Updates.
+
+    '
+- id: app_key
+  type: secret
+  label: Application Key
+  required: true
+  when:
+    field: mode
+    equals: api
+  help: 'Aus einer OVH-Anwendung, die du unter eu.api.ovh.com/createApp/ anlegst. Dort bekommst du Application
+    Key und Application Secret zusammen.
+
+    '
+- id: app_secret
+  type: secret
+  label: Application Secret
+  required: true
+  when:
+    field: mode
+    equals: api
+  help: Das Gegenstück zum Application Key aus derselben Anwendung.
+- id: consumer_key
+  type: secret
+  label: Consumer Key
+  required: true
+  when:
+    field: mode
+    equals: api
+  help: 'Verknüpft die Anwendung mit deinem OVH-Konto. Über ovh.com/auth/api/createToken mit Schreibrechten
+    auf die DNS-Zone erzeugen.
+
+    '
+- id: api_endpoint
+  type: select
+  label: API-Endpunkt
+  default: ovh-eu
+  when:
+    field: mode
+    equals: api
+  options:
+  - value: ovh-eu
+    label: OVH Europa
+  - value: ovh-ca
+    label: OVH Kanada
+  - value: ovh-us
+    label: OVH USA
+  - value: kimsufi-eu
+    label: Kimsufi Europa
+  - value: kimsufi-ca
+    label: Kimsufi Kanada
+  - value: soyoustart-eu
+    label: So you Start Europa
+  - value: soyoustart-ca
+    label: So you Start Kanada

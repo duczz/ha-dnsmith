@@ -1,0 +1,514 @@
+/* DNSmith Ingress UI.
+ *
+ * Colours come from Home Assistant's own CSS variables where the page is
+ * embedded in it, with a full fallback palette so the page is also correct
+ * when opened directly. That is why every colour is written as
+ * var(--ha-token, fallback) rather than as a literal: the add-on then follows
+ * the user's theme, light or dark, without shipping a theme switcher of its
+ * own.
+ *
+ * No build step, no framework, no CDN. Home Assistant runs on networks
+ * without internet access, and a DDNS interface that fails to load offline is
+ * broken on exactly the day it is needed.
+ */
+
+:root {
+  --bg: var(--primary-background-color, #f6f7f9);
+  --surface: var(--card-background-color, #ffffff);
+  --surface-2: var(--secondary-background-color, #eef0f4);
+  --fg: var(--primary-text-color, #1b1c1f);
+  --fg-muted: var(--secondary-text-color, #63666e);
+  --accent: var(--primary-color, #0a84c1);
+  --accent-fg: var(--text-primary-color, #ffffff);
+  --divider: var(--divider-color, #dcdfe5);
+  --ok: var(--success-color, #2e8540);
+  --warn: var(--warning-color, #b26a00);
+  --bad: var(--error-color, #c0392b);
+  --radius: 12px;
+  --radius-sm: 8px;
+  --gap: 16px;
+  --shadow: 0 1px 2px rgba(0, 0, 0, .06), 0 2px 8px rgba(0, 0, 0, .04);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: var(--primary-background-color, #16181d);
+    --surface: var(--card-background-color, #1f2229);
+    --surface-2: var(--secondary-background-color, #272b33);
+    --fg: var(--primary-text-color, #e9eaee);
+    --fg-muted: var(--secondary-text-color, #9aa0ac);
+    --divider: var(--divider-color, #333844);
+    --ok: var(--success-color, #4caf6a);
+    --warn: var(--warning-color, #e0a244);
+    --bad: var(--error-color, #e26055);
+    --shadow: 0 1px 2px rgba(0, 0, 0, .4);
+  }
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 15px/1.55 var(--paper-font-body1_-_font-family, system-ui, -apple-system,
+        "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* --- chrome ------------------------------------------------------------ */
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--surface);
+  border-bottom: 1px solid var(--divider);
+}
+
+.topbar-inner {
+  max-width: 940px;
+  margin: 0 auto;
+  padding: 10px 16px;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.brand {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -.01em;
+}
+
+.tabs { display: flex; gap: 4px; }
+
+.tab {
+  border: 0;
+  background: none;
+  color: var(--fg-muted);
+  font: inherit;
+  padding: 7px 12px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.tab:hover { background: var(--surface-2); color: var(--fg); }
+.tab.is-active { background: var(--surface-2); color: var(--fg); font-weight: 600; }
+
+.view {
+  max-width: 940px;
+  margin: 0 auto;
+  padding: 20px 16px 64px;
+}
+
+/* --- structure --------------------------------------------------------- */
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--divider);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 18px;
+  margin-bottom: var(--gap);
+}
+
+.section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 28px 0 12px;
+  flex-wrap: wrap;
+}
+
+.section-head h2 { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: .01em; }
+
+h3 { margin: 0 0 4px; font-size: 15px; font-weight: 600; }
+
+.muted { color: var(--fg-muted); }
+.small { font-size: 13px; }
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+
+/* --- public address ---------------------------------------------------- */
+
+.ip-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: var(--gap);
+}
+
+.ip-box { min-width: 0; }
+.ip-label { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--fg-muted); }
+.ip-value { font-size: 20px; font-weight: 600; word-break: break-all; margin-top: 2px; }
+.ip-value.is-missing { color: var(--fg-muted); font-weight: 400; font-size: 16px; }
+
+.stat-row { display: flex; gap: 22px; flex-wrap: wrap; margin-top: 14px; }
+.stat b { font-size: 19px; font-weight: 600; display: block; }
+.stat span { font-size: 12px; color: var(--fg-muted); }
+.stat.is-bad b { color: var(--bad); }
+
+/* --- notices ----------------------------------------------------------- */
+
+.notice {
+  border-left: 3px solid var(--warn);
+  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+  padding: 11px 14px;
+  margin-top: 12px;
+  font-size: 14px;
+}
+
+.notice.is-error { border-left-color: var(--bad); }
+
+/* --- records ----------------------------------------------------------- */
+
+.record {
+  display: flex;
+  align-items: flex-start;
+  gap: 13px;
+  padding: 14px 0;
+  border-top: 1px solid var(--divider);
+}
+
+.record:first-child { border-top: 0; }
+
+.dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-top: 6px;
+  flex: 0 0 auto;
+  background: var(--fg-muted);
+}
+
+.dot.is-ok { background: var(--ok); }
+.dot.is-bad { background: var(--bad); }
+.dot.is-busy { background: var(--warn); }
+
+.record-main { flex: 1 1 auto; min-width: 0; }
+.record-name { font-weight: 600; word-break: break-all; }
+.record-meta { font-size: 13px; color: var(--fg-muted); margin-top: 1px; }
+.record-actions { display: flex; gap: 6px; flex: 0 0 auto; }
+
+.error-box {
+  margin-top: 9px;
+  border-left: 3px solid var(--bad);
+  background: var(--surface-2);
+  border-radius: var(--radius-sm);
+  padding: 10px 13px;
+  font-size: 14px;
+}
+
+.error-box ul { margin: 7px 0 0; padding-left: 19px; }
+.error-box li { margin: 3px 0; }
+
+details.tech { margin-top: 8px; }
+details.tech summary { cursor: pointer; font-size: 13px; color: var(--fg-muted); }
+details.tech pre {
+  margin: 7px 0 0;
+  padding: 9px 11px;
+  background: var(--bg);
+  border-radius: var(--radius-sm);
+  overflow-x: auto;
+  font-size: 12px;
+}
+
+/* --- buttons ----------------------------------------------------------- */
+
+.btn {
+  font: inherit;
+  border: 1px solid var(--divider);
+  background: var(--surface);
+  color: var(--fg);
+  padding: 8px 14px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.btn:hover:not(:disabled) { background: var(--surface-2); }
+.btn:disabled { opacity: .5; cursor: default; }
+.btn.is-primary { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+.btn.is-primary:hover:not(:disabled) { filter: brightness(1.08); }
+.btn.is-danger { color: var(--bad); border-color: var(--bad); background: none; }
+.btn.is-small { padding: 5px 10px; font-size: 13px; }
+
+.btn-row { display: flex; gap: 9px; flex-wrap: wrap; margin-top: 20px; }
+
+/* --- forms ------------------------------------------------------------- */
+
+.field { margin-bottom: 17px; }
+
+.field label { display: block; font-weight: 600; font-size: 14px; margin-bottom: 5px; }
+.field .req { color: var(--bad); margin-left: 2px; }
+
+.field input[type=text],
+.field input[type=password],
+.field input[type=email],
+.field input[type=number],
+.field input[type=url],
+.field select,
+.field textarea {
+  width: 100%;
+  font: inherit;
+  padding: 9px 11px;
+  border: 1px solid var(--divider);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--fg);
+}
+
+.field textarea { min-height: 96px; resize: vertical; font-family: ui-monospace, monospace; font-size: 13px; }
+.field input.mono { font-family: ui-monospace, monospace; }
+
+.field input:focus, .field select:focus, .field textarea:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+  border-color: var(--accent);
+}
+
+.field .help { font-size: 13px; color: var(--fg-muted); margin-top: 5px; }
+.field .problem { font-size: 13px; color: var(--bad); margin-top: 5px; font-weight: 500; }
+.field.has-problem input, .field.has-problem select { border-color: var(--bad); }
+
+.field-check { display: flex; align-items: flex-start; gap: 9px; }
+.field-check input { margin-top: 3px; width: 17px; height: 17px; flex: 0 0 auto; }
+.field-check label { margin: 0; }
+
+.secret-set {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--fg-muted);
+  margin-top: 5px;
+}
+
+/* --- provider picker --------------------------------------------------- */
+
+.search {
+  width: 100%;
+  font: inherit;
+  padding: 11px 13px;
+  border: 1px solid var(--divider);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--fg);
+}
+
+.chips { display: flex; gap: 7px; flex-wrap: wrap; margin: 14px 0 4px; }
+
+.chip {
+  font: inherit;
+  font-size: 13px;
+  border: 1px solid var(--divider);
+  background: var(--surface);
+  color: var(--fg-muted);
+  padding: 5px 11px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.chip:hover { background: var(--surface-2); color: var(--fg); }
+.chip.is-active { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+
+.provider-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(228px, 1fr));
+  gap: 11px;
+  margin-top: 14px;
+}
+
+.provider {
+  text-align: left;
+  font: inherit;
+  border: 1px solid var(--divider);
+  background: var(--surface);
+  color: var(--fg);
+  border-radius: var(--radius);
+  padding: 13px;
+  cursor: pointer;
+  display: flex;
+  gap: 11px;
+  align-items: flex-start;
+  min-width: 0;
+}
+
+.provider:hover { border-color: var(--accent); }
+
+/* A coloured monogram instead of the provider's logo. Third-party marks are
+ * a trademark question DNSmith does not need to take on, and a bundled logo
+ * pack would also have to be kept current. The colour is derived from the
+ * provider ID, so each one is recognisable and stable. */
+.monogram {
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-sm);
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  font-weight: 700;
+  font-size: 14px;
+  color: #fff;
+}
+
+/* A provider's own favicon.
+ *
+ * Neutral tile, not a coloured one: the icon brings its own colours, and a
+ * tinted square behind it would fight them. The faint border keeps icons
+ * with a white or transparent background from dissolving into the card.
+ *
+ * object-fit: contain, because favicons are square but not reliably so, and
+ * a stretched logo looks worse than no logo.
+ */
+.monogram-logo {
+  background: var(--surface-2, #fff);
+  box-shadow: inset 0 0 0 1px var(--border, rgba(0, 0, 0, 0.12));
+  overflow: hidden;
+}
+
+.monogram-logo img {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+  display: block;
+}
+
+.provider-text { min-width: 0; }
+.provider-name { font-weight: 600; }
+.provider-desc {
+  font-size: 13px;
+  color: var(--fg-muted);
+  margin-top: 2px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.badge {
+  display: inline-block;
+  font-size: 11px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--fg-muted);
+  margin-left: 6px;
+  vertical-align: 1px;
+}
+
+/* --- auth variants ----------------------------------------------------- */
+
+.variant {
+  display: flex;
+  gap: 11px;
+  align-items: flex-start;
+  border: 1px solid var(--divider);
+  border-radius: var(--radius-sm);
+  padding: 12px;
+  margin-bottom: 9px;
+  cursor: pointer;
+}
+
+.variant.is-active { border-color: var(--accent); background: var(--surface-2); }
+.variant input { margin-top: 3px; flex: 0 0 auto; }
+
+/* The row is a <label>, and .field label sets font-weight 600. Without this
+ * reset the explanatory hint inherits it and shouts as loudly as the choice
+ * it explains. */
+.variant > div { font-weight: 400; }
+.variant > div > div:first-child { font-weight: 600; }
+.variant-hint { font-size: 13px; color: var(--fg-muted); margin-top: 4px; font-weight: 400; }
+
+/* --- misc -------------------------------------------------------------- */
+
+.empty { text-align: center; padding: 46px 18px; color: var(--fg-muted); }
+.empty h3 { color: var(--fg); margin-bottom: 6px; }
+
+.loading { display: flex; align-items: center; gap: 11px; padding: 46px 0; color: var(--fg-muted); }
+
+.spinner {
+  width: 17px;
+  height: 17px;
+  border: 2px solid var(--divider);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin .8s linear infinite;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner { animation-duration: 3s; }
+}
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: 22px;
+  transform: translateX(-50%);
+  background: var(--fg);
+  color: var(--bg);
+  padding: 11px 18px;
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  box-shadow: var(--shadow);
+  z-index: 50;
+  max-width: min(560px, calc(100vw - 32px));
+}
+
+.toast.is-bad { background: var(--bad); color: #fff; }
+
+.back {
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  padding: 0;
+  margin-bottom: 14px;
+  cursor: pointer;
+}
+
+@media (max-width: 560px) {
+  .record { flex-wrap: wrap; }
+  .record-actions { width: 100%; }
+  .provider-grid { grid-template-columns: 1fr; }
+}
+
+
+/* A provider DNSmith knows about but cannot yet update.
+
+   Dimmed rather than hidden, and still clickable: "is my provider supported?"
+   deserves an answer, and the form gives a better one than an empty search
+   result does. */
+.provider-unported {
+  opacity: 0.55;
+}
+
+.provider-unported:hover,
+.provider-unported:focus-visible {
+  opacity: 1;
+}
+
+/* One address family's source: the mode and the inputs that belong to it,
+   kept together so that two families do not read as one long list of fields. */
+.field-group {
+  border-left: 2px solid var(--divider);
+  padding-left: var(--gap);
+  margin: var(--gap) 0;
+}
+
+/* The one card that must not be mistaken for an ordinary one: the stored
+   configuration could not be read, so the empty list below it is not the
+   truth. */
+.card.is-alarm {
+  border-color: var(--bad);
+  border-left-width: 4px;
+}
+
+.card.is-alarm h3 {
+  color: var(--bad);
+}

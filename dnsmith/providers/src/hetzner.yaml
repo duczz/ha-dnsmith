@@ -1,0 +1,40 @@
+# Quelle fuer providers/hetzner.yaml - von Hand gepflegt.
+# Nach jeder Aenderung: python3 tools/manifest_merge.py
+name: Hetzner
+description: Deutscher Hoster. Läuft über die Hetzner Cloud API, nicht mehr über die alte DNS Console
+  (die wurde am 27.05.2026 abgeschaltet).
+website: https://www.hetzner.com
+categories:
+- german
+- dns_provider
+engine:
+  adapter: python
+  module: hetzner
+capabilities:
+  ipv4: true
+  ipv6: true
+  ipv6_suffix: true
+  ttl: true
+  proxy: false
+fields:
+- id: token
+  type: secret
+  label: API-Token
+  required: true
+  help: 'Token der Hetzner Cloud Console (console.hetzner.com), nicht dein Konto-Passwort. Unter Sicherheit
+    → API-Tokens mit Schreibrecht erzeugen; er wird nur einmal angezeigt. Ein Token aus der alten, inzwischen
+    abgeschalteten DNS Console (dns.hetzner.com) funktioniert hier nicht mehr.
+
+    '
+- id: ttl
+  type: integer
+  label: TTL
+  required: false
+  validate:
+    min: 60
+  help: 'Sekunden, optional. Leer lassen für den Zonen-Standardwert, sonst mindestens 60 Sekunden — kleinere
+    Werte lehnt Hetzner ab.
+
+    '
+example:
+  ttl: '600'

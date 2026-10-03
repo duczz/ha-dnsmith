@@ -1,0 +1,19 @@
+# Zwei Ökosysteme, beide klein: die Actions in .github/workflows und die
+# Python-Abhängigkeiten des Hubs. Monatlich reicht — ein DDNS-Hub folgt keinem
+# schnellen Abhängigkeitsbaum, und jedes Update muss ohnehin auf Alpine/musl
+# bauen.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: "chore(ci)"
+
+  - package-ecosystem: pip
+    directory: "/dnsmith/hub"
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: "chore(deps)"

@@ -1,0 +1,135 @@
+# Quelle fuer providers/custom_http.yaml - von Hand gepflegt.
+# Nach jeder Aenderung: python3 tools/manifest_merge.py
+name: Eigener HTTP-Provider
+description: 'Frei konfigurierbarer HTTP-Aufruf für Anbieter, die noch nicht unterstützt werden. Methode,
+  Authentifizierung, Parameternamen und Erfolgskriterium sind frei wählbar.
+
+  '
+categories:
+- generic
+engine:
+  adapter: native
+  protocol: custom_http
+capabilities:
+  ipv4: true
+  ipv6: true
+  ipv6_suffix: true
+  wildcard: false
+  multiple_records: false
+  ttl: false
+  proxy: false
+fields:
+- id: url
+  type: url
+  label: Update-URL
+  required: true
+  help: 'Muss HTTPS sein. Interne und private Adressen werden abgelehnt — DNSmith ruft diese URL selbst
+    auf und darf dabei nicht als Sprungbrett ins Heimnetz dienen.
+
+    '
+  placeholder: https://example.com/update
+  validate:
+    pattern: ^https://
+- id: method
+  type: select
+  label: HTTP-Methode
+  default: GET
+  options:
+  - value: GET
+    label: GET
+  - value: POST
+    label: POST
+- id: auth_mode
+  type: select
+  label: Authentifizierung
+  default: none
+  options:
+  - value: none
+    label: Keine
+  - value: basic
+    label: Basic-Auth
+  - value: bearer
+    label: Bearer-Token
+  - value: query
+    label: Query-Parameter
+- id: auth_username
+  type: text
+  label: Benutzername
+  when:
+    field: auth_mode
+    equals: basic
+- id: auth_password
+  type: secret
+  label: Passwort
+  when:
+    field: auth_mode
+    equals: basic
+  help: 'Das Passwort für HTTP-Basic-Auth, wie es die Doku deines Anbieters für den Update-Aufruf nennt.
+    Bei vielen Diensten ist das ein eigenes Update-Passwort und nicht das Konto-Passwort.
+
+    '
+- id: auth_token
+  type: secret
+  label: Token
+  when:
+    field: auth_mode
+    equals: bearer
+  help: 'Wird als "Authorization: Bearer <Wert>" gesendet. Nur den Token selbst eintragen, ohne das Wort
+    Bearer davor.
+
+    '
+- id: auth_query_name
+  type: text
+  label: Name des Query-Parameters
+  when:
+    field: auth_mode
+    equals: query
+  placeholder: apikey
+- id: auth_query_value
+  type: secret
+  label: Wert des Query-Parameters
+  when:
+    field: auth_mode
+    equals: query
+  help: 'Der Wert, der als Query-Parameter angehängt wird. Achtung: Query-Parameter landen bei manchen
+    Anbietern im Server-Protokoll — wenn der Anbieter auch Basic-Auth oder Bearer anbietet, ist das der
+    sicherere Weg.
+
+    '
+- id: ipv4_parameter
+  type: text
+  label: Parametername für IPv4
+  default: myip
+  help: Leer lassen, wenn der Anbieter die IP aus der Verbindung selbst ermittelt.
+- id: ipv6_parameter
+  type: text
+  label: Parametername für IPv6
+  default: myipv6
+- id: hostname_parameter
+  type: text
+  label: Parametername für den Hostnamen
+  default: hostname
+- id: success_mode
+  type: select
+  label: Erfolg erkennen an
+  default: status
+  options:
+  - value: status
+    label: HTTP-Statuscode 2xx
+  - value: regex
+    label: Muster in der Antwort
+- id: success_regex
+  type: text
+  label: Erfolgsmuster
+  when:
+    field: success_mode
+    equals: regex
+  help: Regulärer Ausdruck. "good|nochg" passt auf die meisten DynDNS-artigen Antworten.
+  placeholder: good|nochg
+  ui:
+    monospace: true
+notes:
+- 'Der eigene HTTP-Provider ist die letzte Option. Wenn er für einen Anbieter funktioniert, lohnt sich
+  ein Hinweis im Projekt — daraus wird ein richtiger Provider mit eigenem Formular.
+
+  '

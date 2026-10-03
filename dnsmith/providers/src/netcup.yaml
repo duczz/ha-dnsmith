@@ -1,0 +1,41 @@
+# Quelle fuer providers/netcup.yaml - von Hand gepflegt.
+# Nach jeder Aenderung: python3 tools/manifest_merge.py
+name: netcup
+description: Deutscher Hoster. Braucht API-Schlüssel und API-Passwort — zwei verschiedene Dinge.
+website: https://www.netcup.com
+categories:
+- german
+- dns_provider
+engine:
+  adapter: python
+  module: netcup
+capabilities:
+  ipv4: true
+  ipv6: true
+  ipv6_suffix: true
+  ttl: false
+  proxy: false
+fields:
+- id: customer_number
+  type: text
+  label: Kundennummer
+  required: true
+  help: Die netcup-Kundennummer, wie sie im Kundenkonto oben steht.
+- id: api_key
+  type: secret
+  label: API-Key
+  required: true
+  help: 'Der Schlüssel, der deinen API-Zugang identifiziert. Im netcup Customer Control Panel im API-Bereich
+    erzeugen; mehrere Keys sind möglich.
+
+    '
+- id: password
+  type: secret
+  label: API-Passwort
+  required: true
+  help: 'Ausdrücklich nicht dein Kontopasswort. netcup erlaubt genau ein API-Passwort pro Konto; es gilt
+    für alle deine API-Keys und wird ebenfalls im CCP im API-Bereich gesetzt.
+
+    '
+example:
+  customer_number: '111111'

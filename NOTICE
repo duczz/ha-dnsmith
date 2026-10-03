@@ -1,0 +1,19 @@
+DNSmith
+Copyright (c) 2026 DNSmith contributors
+
+Provider icons in dnsmith/frontend/assets/logos/ are each provider's own
+favicon, fetched from that provider's own website by tools/fetch_logos.py.
+All product names, trademarks and registered trademarks in those files are
+property of their respective owners. They are used here for identification
+only - to show which service an entry updates - and imply no affiliation or
+endorsement. The add-on renders initials for every provider whose icon is
+absent, and works unchanged when none is present.
+
+Provider names are the trademarks of their respective owners. They appear in
+this repository to name the service an entry updates; no affiliation or
+endorsement is implied.
+
+What the provider manifests under dnsmith/providers/ and the modules under
+dnsmith/hub/dnsmith_hub/adapters/providers/ record is factual: which host,
+path and parameters a given provider's public API expects. They describe
+third-party interfaces and contain no expression taken from any other project.

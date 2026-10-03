@@ -1,0 +1,52 @@
+# Quelle fuer providers/godaddy.yaml - von Hand gepflegt.
+# Nach jeder Aenderung: python3 tools/manifest_merge.py
+name: GoDaddy
+description: Großer US-Registrar. Der API-Schlüssel muss ein Production-Key sein, kein Test-Key.
+website: https://www.godaddy.com
+categories:
+- registrar
+engine:
+  adapter: native
+  protocol: http
+capabilities:
+  ipv4: true
+  ipv6: true
+  ipv6_suffix: true
+  ttl: false
+  proxy: false
+rate_limit:
+  note: 20.000 API-Aufrufe im Monat im kostenlosen Kontingent. Eine Minutengrenze nennt GoDaddy nicht
+    mehr.
+request:
+  url: https://api.godaddy.com/v1/domains/{domain}/records/{rrtype}/{owner}
+  method: PUT
+  auth:
+    mode: header
+    header: Authorization
+    format: sso-key {key}:{secret}
+  headers:
+    Content-Type: application/json
+    Accept: application/json
+  body_type: json
+  body:
+  - data: '{ip}'
+  success:
+    status:
+    - 200
+fields:
+- id: key
+  type: secret
+  label: API-Key
+  required: true
+  help: 'Der öffentliche Teil des Schlüsselpaars von developer.godaddy.com — unbedingt ein Production-Key,
+    kein Test-Key. Form xxxxxxxx_yyyyyyyy; das Format wird streng geprüft.
+
+    '
+- id: secret
+  type: secret
+  label: API-Secret
+  required: true
+  help: Das zugehörige Secret von derselben Seite, nicht dein GoDaddy-Passwort.
+notes:
+- API-Zugriff setzt ein GoDaddy-Konto mit mindestens einer aktiven Domain voraus. Scheitert die Verbindung
+  mit "Access denied", liegt es meist daran und nicht an den Zugangsdaten.

@@ -1,0 +1,23 @@
+name: 💡 Funktion vorschlagen
+description: Eine Idee, die kein Anbieter ist
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Welches Problem löst das?
+      description: Beschreibe die Situation, nicht die Lösung.
+    validations:
+      required: true
+
+  - type: textarea
+    id: idee
+    attributes:
+      label: Wie könnte es aussehen?
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternativen
+    attributes:
+      label: Was hast du stattdessen versucht?

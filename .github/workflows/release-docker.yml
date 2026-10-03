@@ -1,0 +1,88 @@
+name: Release-Docker
+
+# Baut beim Veröffentlichen eines Releases das Docker-Image für alle
+# unterstützten Architekturen und lädt es auf ghcr.io hoch. `image:` in
+# dnsmith/config.yaml zeigt darauf; der Supervisor zieht es, statt lokal zu
+# bauen. Das Update-Banner hängt nicht daran, sondern an `version` in
+# config.yaml. Deshalb: das Release direkt nach dem Versionssprung
+# veröffentlichen, und eine veröffentlichte Version nie neu veröffentlichen -
+# das überschreibt das Image-Tag, installierte Geräte merken es nicht.
+
+on:
+  release:
+    types: [published]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository_owner }}/ha-dnsmith
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  build-and-push:
+    name: ${{ matrix.arch }} bauen und pushen
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            platform: linux/amd64
+            build_from: ghcr.io/home-assistant/amd64-base-python:3.12-alpine3.24
+          - arch: aarch64
+            platform: linux/arm64
+            build_from: ghcr.io/home-assistant/aarch64-base-python:3.12-alpine3.24
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Version in config.yaml muss zum Tag passen
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          cfg="$(grep -m1 '^version:' dnsmith/config.yaml | awk '{gsub(/["[:space:]]/, "", $2); print $2}')"
+          if [ "$cfg" != "$tag" ]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} passt nicht zu version \"${cfg}\" in dnsmith/config.yaml. Erst Version anheben und auf main pushen, dann das Release neu anlegen."
+            exit 1
+          fi
+
+      - name: QEMU einrichten (für Cross-Kompilierung)
+        uses: docker/setup-qemu-action@v4
+
+      - name: Docker Buildx einrichten
+        uses: docker/setup-buildx-action@v4
+
+      - name: Bei ghcr.io anmelden
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Versions-Tag ermitteln
+        id: version
+        run: |
+          # Entfernt das führende "v" aus dem Release-Tag (v0.1.0 → 0.1.0)
+          echo "tag=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Image bauen und pushen
+        uses: docker/build-push-action@v7
+        with:
+          context: ./dnsmith
+          file: ./dnsmith/Dockerfile
+          platforms: ${{ matrix.platform }}
+          push: true
+          build-args: |
+            BUILD_FROM=${{ matrix.build_from }}
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/${{ matrix.arch }}:${{ steps.version.outputs.tag }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/${{ matrix.arch }}:latest
+          labels: |
+            org.opencontainers.image.title=DNSmith
+            org.opencontainers.image.description=Der DDNS-Hub für Home Assistant
+            org.opencontainers.image.source=https://github.com/duczz/ha-dnsmith
+            org.opencontainers.image.version=${{ steps.version.outputs.tag }}
+            org.opencontainers.image.licenses=MIT
+            io.hass.type=addon
+            io.hass.name=DNSmith
+            io.hass.arch=${{ matrix.arch }}

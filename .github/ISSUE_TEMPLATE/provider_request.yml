@@ -1,0 +1,46 @@
+name: 🗂️ Anbieter vorschlagen
+description: Ein DDNS-Anbieter fehlt in der Liste
+labels: ["provider"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Viele Anbieter lassen sich schon heute über **Generisches DynDNS2** oder
+        den **eigenen HTTP-Provider** anbinden. Wenn das klappt, ist der Eintrag
+        trotzdem willkommen — dann wird daraus ein fertiges Formular.
+
+  - type: input
+    id: name
+    attributes:
+      label: Anbieter
+      placeholder: "example.net"
+    validations:
+      required: true
+
+  - type: input
+    id: doku
+    attributes:
+      label: Link zur API-Dokumentation
+    validations:
+      required: true
+
+  - type: dropdown
+    id: protokoll
+    attributes:
+      label: Was verlangt die API?
+      options:
+        - Klassisches DynDNS2 (/nic/update)
+        - Ein einzelner HTTP-Aufruf (REST)
+        - Erst Zone/Record suchen, dann schreiben
+        - Signatur oder Sitzung erforderlich
+        - weiß nicht
+    validations:
+      required: true
+
+  - type: textarea
+    id: hinweise
+    attributes:
+      label: Weitere Hinweise
+      description: >
+        Beispiel-Aufruf (**ohne echte Zugangsdaten**), Besonderheiten bei IPv6,
+        bekannte Sperren bei zu häufigen Updates.
