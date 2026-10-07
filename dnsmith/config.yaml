@@ -50,8 +50,8 @@ homeassistant_api: true
 
 # The interface is the configuration — the one exception is how much the log
 # says, which has to be settable even when the interface does not come up.
-# Optional, so nothing has to be filled in.
-options: {}
+# Optional, so nothing has to be filled in. `options` is left out on purpose:
+# an empty one is the default, and the app linter rejects it.
 schema:
   log_level: list(trace|debug|info|notice|warning|error|fatal)?
 
