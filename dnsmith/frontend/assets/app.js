@@ -885,13 +885,15 @@ async function loadSettings() {
         el('h3', { text: 'Woher die IP-Adressen kommen' }),
         el('p', { class: 'small muted', text:
           'Normalerweise ermittelt DNSmith die Adressen selbst über das Internet. '
-          + 'Hat der Container keine IPv6-Route — bei DS-Lite-Anschlüssen der '
-          + 'Normalfall —, kennt Home Assistant die externe Adresse trotzdem oft '
+          + 'Hat der Container keine IPv6-Route (bei DS-Lite-Anschlüssen der '
+          + 'Normalfall), kennt Home Assistant die externe Adresse trotzdem oft '
           + 'schon, etwa über die Router-Integration.' }),
         sourceV4.node,
         sourceV6.node,
       ]),
-      el('div', { class: 'btn-row' }, [
+      // The card below has no top margin of its own, and a button row only
+      // spaces itself from what is above it.
+      el('div', { class: 'btn-row', style: 'margin-bottom: var(--gap)' }, [
         el('button', { class: 'btn is-primary', text: 'Einstellungen speichern', onclick: saveSettings }),
       ]),
       el('div', { class: 'card' }, [

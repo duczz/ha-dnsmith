@@ -264,6 +264,20 @@ details.tech pre {
 .field textarea { min-height: 96px; resize: vertical; font-family: ui-monospace, monospace; font-size: 13px; }
 .field input.mono { font-family: ui-monospace, monospace; }
 
+/* The browser's own arrow sits about 10px from the edge and cannot be moved,
+   so the select draws its own. Declared after the shorthand above, which
+   would otherwise reset the background image. */
+.field select {
+  appearance: none;
+  padding-right: 34px;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--fg-muted) 50%),
+    linear-gradient(135deg, var(--fg-muted) 50%, transparent 50%);
+  background-position: calc(100% - 17px) 50%, calc(100% - 12px) 50%;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+}
+
 .field input:focus, .field select:focus, .field textarea:focus {
   outline: 2px solid var(--accent);
   outline-offset: -1px;
