@@ -24,7 +24,7 @@ from starlette.routing import Route
 from .adapters.base import AdapterError
 from .errors import explain
 from .registry import ProviderNotFound, ValidationProblem, build_form
-from .store import DuplicateRecord, RecordNotFound
+from .store import ConfigUnreadable, DuplicateRecord, RecordNotFound
 
 logger = logging.getLogger("dnsmith.hub")
 
@@ -139,14 +139,9 @@ def build_routes(service) -> list[Route]:
     async def update_record(request: Request) -> Response:
         payload = await read_json(request)
         try:
-            record = service.store.update_record(
-                request.path_params["record_id"],
-                values=payload.get("values"),
-                label=payload.get("label"),
-                enabled=payload.get("enabled"),
-                auth_variant=payload.get("auth_variant"),
+            record, update_now = service.update_record(
+                request.path_params["record_id"], payload
             )
-            service.apply()
         except RecordNotFound:
             return error_response("record_not_found", "Diesen Eintrag gibt es nicht.", 404)
         except ValidationProblem as problem:
@@ -160,7 +155,16 @@ def build_routes(service) -> list[Route]:
             return json_response(
                 {"error": explain(error.as_dict(), redactor=service.redactor)}, 502
             )
-        return json_response(service.record_payload(record))
+
+        # The same reasoning as after creating a record: a saved change to
+        # what is sent is the user's consent to send it, and they are
+        # looking at the screen for the answer.
+        if update_now:
+            asyncio.create_task(_update_soon(service, record.id))
+
+        body = service.record_payload(record)
+        body["update_started"] = update_now
+        return json_response(body)
 
     async def delete_record(request: Request) -> Response:
         try:
@@ -222,7 +226,13 @@ def build_routes(service) -> list[Route]:
         return json_response(result)
 
     async def status(request: Request) -> Response:
-        return json_response(service.status_payload())
+        # In a worker thread: building the status asks for the public
+        # address, which outside its two-minute cache is a round of HTTP
+        # requests, and for an entity source a call to Home Assistant on
+        # every request. On the event loop that froze the whole interface —
+        # every other request included — for as long as the slowest echo
+        # service took to time out.
+        return json_response(await asyncio.to_thread(service.status_payload))
 
     async def public_ip(request: Request) -> Response:
         refresh = request.query_params.get("refresh") == "true"
@@ -258,7 +268,7 @@ def build_routes(service) -> list[Route]:
         return json_response({"status": "ok", "records": len(service.store.records())})
 
     async def readyz(request: Request) -> Response:
-        return json_response(service.readiness())
+        return json_response(await asyncio.to_thread(service.readiness))
 
     return [
         Route("/api/v1/providers", list_providers),
@@ -285,10 +295,26 @@ async def bad_request_handler(request: Request, exc: BadRequest) -> Response:
     return error_response("bad_request", exc.message, 400)
 
 
+async def config_unreadable_handler(request: Request, exc: ConfigUnreadable) -> Response:
+    """Every write is refused while the stored configuration is unreadable.
+
+    The store raises rather than overwrite the user's records with an empty
+    list. Unhandled, that surfaced as a bare "Internal Server Error" — the
+    one place the reason was not shown, on exactly the action that hits it.
+    """
+    return error_response("config_unreadable", str(exc), 409)
+
+
+EXCEPTION_HANDLERS = {
+    BadRequest: bad_request_handler,
+    ConfigUnreadable: config_unreadable_handler,
+}
+
+
 def create_app(service) -> Starlette:
     return Starlette(
         routes=build_routes(service),
-        exception_handlers={BadRequest: bad_request_handler},
+        exception_handlers=EXCEPTION_HANDLERS,
     )
 
 

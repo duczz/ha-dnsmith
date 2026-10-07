@@ -30,8 +30,8 @@ Zugangsdaten eintragen, fertig.
 2. **+ Anbieter hinzufügen**, Zugangsdaten eintragen
 3. **Verbindung testen**, dann **Eintrag anlegen**
 
-Es gibt keine Konfiguration im Reiter nebenan und keine YAML-Datei. Alles läuft
-über die Oberfläche.
+Es gibt keine YAML-Datei. Alles läuft über die Oberfläche — im Reiter
+„Konfiguration" steht nur die optionale Protokollstufe für die Fehlersuche.
 
 ## Gut zu wissen
 

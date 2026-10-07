@@ -27,6 +27,10 @@ request:
     failed login: auth
     invalid hostname: not_found
     minimum 600 seconds between requests: rate_limit
+    # Every other refusal also comes as an <ERROR CODE=... TEXT=...> on an
+    # HTTP 200. Without a catch-all it read as a success. Listed last so the
+    # specific markers above win.
+    <error: provider_response
 fields:
 - id: username
   type: text

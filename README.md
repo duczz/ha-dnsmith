@@ -65,7 +65,9 @@ eintragen, fertig. Beliebig viele Einträge über beliebig viele Anbieter, alles
   abgelehnt wurde und was zu prüfen ist. Die Originalmeldung bleibt aufklappbar.
 - **⏱️ Schonender Umgang mit Anbietern** – aktualisiert nur bei tatsächlicher
   IP-Änderung, mit Abklingzeit und Backoff. Sperren werden erkannt und abgewartet.
-- **🔒 Kein offener Port** – die Oberfläche läuft ausschließlich über Ingress.
+- **🔒 Kein offener Port** – die Oberfläche läuft ausschließlich über Ingress
+  und antwortet auch im internen Netz von Home Assistant nur dem
+  Ingress-Gateway, nicht anderen Apps.
 - **🛡️ Kein Sprungbrett ins Heimnetz** – jede vom Nutzer angegebene Adresse
   wird vor dem Aufruf aufgelöst und geprüft; Weiterleitungen werden nicht verfolgt.
 
@@ -116,8 +118,9 @@ Der Knopf oben in dieser Datei erledigt Schritt 1 und 2 auf einmal.
 **Öffnen** → **+ Anbieter hinzufügen** → Zugangsdaten eintragen →
 **Verbindung testen** → **Eintrag anlegen**.
 
-Es gibt keine App-Konfiguration im Supervisor-Reiter und keine YAML-Datei —
-alles steht in der Oberfläche. Wie die einzelnen Schritte aussehen, woher die
+Es gibt keine YAML-Datei — alles steht in der Oberfläche. Im Reiter
+„Konfiguration" der App gibt es nur eine einzige, optionale Einstellung: die
+Protokollstufe. Wie die einzelnen Schritte aussehen, woher die
 IP-Adressen kommen und was bei IPv6 zu beachten ist, steht im
 [Handbuch](dnsmith/DOCS.md#einrichten).
 
@@ -233,8 +236,8 @@ Eintrag: die Oberfläche bleibt erreichbar und zeigt den Grund.
 - **Fehlersuche:** die häufigen Fälle stehen in
   [`dnsmith/DOCS.md`](dnsmith/DOCS.md#fehlersuche)
 - **Protokoll:** Einstellungen → Add-ons → DNSmith → **Protokoll**. Für mehr
-  Details die Protokollstufe in den DNSmith-Einstellungen auf `debug` stellen —
-  Zugangsdaten werden auch dort herausgefiltert
+  Details im Reiter **Konfiguration** der App `log_level` auf `debug` stellen
+  und die App neu starten — Zugangsdaten werden auch dort herausgefiltert
 - **Fehler melden:** [Issue anlegen](https://github.com/duczz/ha-dnsmith/issues/new/choose)
 - **Sicherheitslücke:** [GitHub Security Advisories](https://github.com/duczz/ha-dnsmith/security/advisories/new), nicht als öffentliches Issue
 

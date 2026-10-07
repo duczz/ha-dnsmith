@@ -1,5 +1,5 @@
 name: DNSmith
-version: "0.1.0"
+version: "0.1.1"
 slug: dnsmith
 # No full stop at the end. Home Assistant appends one itself when it renders
 # the description under the installed app, so a trailing period shows up as "..".
@@ -39,11 +39,21 @@ map:
 # Health check moved to the Dockerfile's HEALTHCHECK directive — the
 # Supervisor's "watchdog" key is obsolete for this.
 
-# Lets the add-on announce itself to Home Assistant so the integration can be
-# set up without the user copying a host and a token by hand.
-hassio_api: true
-discovery:
-  - dnsmith
+# Reading an address from a Home Assistant entity goes through the
+# Supervisor's proxy to Home Assistant's REST API (http://supervisor/core/api),
+# and the Supervisor answers that proxy only for add-ons that declare
+# homeassistant_api. Without it the entity source cannot work. The Supervisor
+# API itself (hassio_api) and discovery
+# were declared for an integration that does not exist and nothing ever
+# called them, so they are not requested.
+homeassistant_api: true
+
+# The interface is the configuration — the one exception is how much the log
+# says, which has to be settable even when the interface does not come up.
+# Optional, so nothing has to be filled in.
+options: {}
+schema:
+  log_level: list(trace|debug|info|notice|warning|error|fatal)?
 
 backup_exclude:
   - "*.tmp"

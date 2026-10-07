@@ -29,13 +29,16 @@ import logging
 import re
 import threading
 import time
+from dataclasses import replace
 from typing import Any
 
+from . import ssrf
 from .adapters.base import AdapterError, PublicIP, RecordStatus, UpdateState
 from .adapters.native import NativeAdapter
 from .models import Record
 from .publicip import AddressSources
 from .registry import Registry
+from .store import RecordNotFound
 
 logger = logging.getLogger("dnsmith.hub")
 
@@ -47,6 +50,9 @@ _UNITS = {"ms": 0.001, "s": 1.0, "m": 60.0, "h": 3600.0}
 # be retried four times in it, not once.
 BACKOFF_START = 300.0
 BACKOFF_MAX = 6 * 3600.0
+
+# How long a record sits out after the provider said "abuse" or "badagent".
+BAN_SECONDS = 3600.0
 
 
 def parse_duration(text: str, fallback: float) -> float:
@@ -85,6 +91,14 @@ class Scheduler:
         self._next_attempt: dict[str, float] = {}
         self._backoff: dict[str, float] = {}
         self._last_write: dict[str, float] = {}
+        self._banned_until: dict[str, float] = {}
+        # One lock per record, so the same record is never updated twice at
+        # once. Three things can start an update — the timed pass, the button,
+        # and the first update after creating or editing — and each runs in
+        # its own worker thread. Without this, a record created a moment
+        # before a pass was sent to the provider twice in the same second,
+        # which is exactly the pattern providers ban for.
+        self._record_locks: dict[str, threading.Lock] = {}
 
     # -- what the API asks for --------------------------------------------
 
@@ -102,19 +116,66 @@ class Scheduler:
             self._next_attempt.pop(record_id, None)
             self._backoff.pop(record_id, None)
             self._last_write.pop(record_id, None)
+            self._banned_until.pop(record_id, None)
+            self._record_locks.pop(record_id, None)
+
+    def invalidate(self, record_id: str) -> None:
+        """The record's settings changed; decisions made under the old ones
+        no longer apply.
+
+        Without this, a user who fixed a wrong password after a failure
+        still waited out a backoff of up to six hours for credentials that
+        had already been corrected — and a ban the user has meanwhile sorted
+        out with the provider kept the record parked for the rest of the
+        hour. Saving the record is a deliberate act, the same consent as
+        creating it; history (change count, previous addresses) is kept.
+        """
+        with self._lock:
+            self._next_attempt.pop(record_id, None)
+            self._backoff.pop(record_id, None)
+            self._banned_until.pop(record_id, None)
 
     # -- doing the work ----------------------------------------------------
 
     def tick(self) -> list[RecordStatus]:
         """One scheduled pass over every record. Skips whatever is not due."""
         address = self._address()
-        return [
-            self._guarded(record, address)
-            for record in self.store.records()
-            if self._due(record)
-        ]
+        results = []
+        for record in self.store.records():
+            if not self._due(record):
+                continue
+            status = self._guarded(record, address, recheck_due=True)
+            if status is not None:
+                results.append(status)
+        return results
 
-    def _guarded(self, record: Record, address: PublicIP, *, force: bool = False) -> RecordStatus:
+    def _record_lock(self, record_id: str) -> threading.Lock:
+        with self._lock:
+            return self._record_locks.setdefault(record_id, threading.Lock())
+
+    def _guarded(self, record: Record, address: PublicIP, *, force: bool = False,
+                 recheck_due: bool = False) -> RecordStatus | None:
+        """Run one record under its lock, re-reading it once the lock is held.
+
+        Re-reading matters twice over: an edit made while the record waited
+        is what gets sent, and a record deleted meanwhile is not updated —
+        nor does it leave a status behind for an ID that no longer exists.
+        `recheck_due` is for the timed pass, whose answer to "is it due?"
+        may be stale by the time the lock is free: a manual update that ran
+        meanwhile has already done the work, or failed and set a backoff the
+        pass must not walk straight past.
+        """
+        with self._record_lock(record.id):
+            try:
+                record = self.store.record(record.id)
+            except RecordNotFound:
+                return None
+            if recheck_due and not self._due(record):
+                return None
+            return self._run_guarded(record, address, force=force)
+
+    def _run_guarded(self, record: Record, address: PublicIP, *,
+                     force: bool = False) -> RecordStatus:
         """Run one record so that its failure stays its own.
 
         _run raises AdapterError for everything a provider can do wrong, and
@@ -150,13 +211,20 @@ class Scheduler:
         DNSmith's opinion that nothing needs doing.
         """
         record = self.store.record(record_id)
-        return self._guarded(record, self._address(), force=force)
+        status = self._guarded(record, self._address(), force=force)
+        if status is None:
+            # Deleted while it waited for its lock.
+            raise RecordNotFound(record_id)
+        return status
 
     def update_all(self, *, force: bool = True) -> list[RecordStatus]:
         address = self._address()
-        return [
-            self._guarded(record, address, force=force) for record in self.store.records()
-        ]
+        results = []
+        for record in self.store.records():
+            status = self._guarded(record, address, force=force)
+            if status is not None:
+                results.append(status)
+        return results
 
     # -- the decision table -------------------------------------------------
 
@@ -178,11 +246,42 @@ class Scheduler:
             return self._remember(RecordStatus(record_id=record.id, state=UpdateState.DISABLED))
 
         previous = self._statuses.get(record.id)
+
+        # A ban holds against the button as well. "Alle aktualisieren" used to
+        # walk straight past it, and a client that keeps calling after
+        # "abuse" is the one a provider stops unbanning. Editing the record
+        # (invalidate) is the way out before the hour is up.
+        banned = self._ban_remaining(record)
+        if banned and previous is not None:
+            return self._remember(replace(previous, last_attempt=_stamp()))
+
         ipv4 = address.ipv4 if record.ip_version.wants_ipv4 else None
         ipv6 = address.ipv6 if record.ip_version.wants_ipv6 else None
 
+        if not ipv4 and not ipv6:
+            return self._no_address(record, previous, address)
+
+        # A family this pass could not determine is not a family that went
+        # away. The record at the provider still carries the last value
+        # written, so that stays the record's current value, and only the
+        # families actually known now are compared. Before, a dual-stack
+        # record whose IPv6 lookup failed once was sent again with IPv4 only,
+        # logged its IPv6 as "previous", and was sent a third time when the
+        # lookup recovered — three writes for an address that never moved.
+        if previous is not None:
+            if ipv4 is None and record.ip_version.wants_ipv4:
+                known_ipv4 = previous.current_ipv4
+            else:
+                known_ipv4 = ipv4
+            if ipv6 is None and record.ip_version.wants_ipv6:
+                known_ipv6 = previous.current_ipv6
+            else:
+                known_ipv6 = ipv6
+        else:
+            known_ipv4, known_ipv6 = ipv4, ipv6
+
         if not force and previous is not None and previous.healthy:
-            if previous.current_ipv4 == ipv4 and previous.current_ipv6 == ipv6:
+            if previous.current_ipv4 == known_ipv4 and previous.current_ipv6 == known_ipv6:
                 # Nothing moved. This is the common case and the whole reason
                 # DNSmith is not rate-limited out of its providers.
                 self._schedule(record, ok=True)
@@ -190,8 +289,8 @@ class Scheduler:
                     RecordStatus(
                         record_id=record.id,
                         state=UpdateState.UP_TO_DATE,
-                        current_ipv4=ipv4,
-                        current_ipv6=ipv6,
+                        current_ipv4=known_ipv4,
+                        current_ipv6=known_ipv6,
                         last_attempt=_stamp(),
                         last_success=previous.last_success,
                         ip_change_count=previous.ip_change_count,
@@ -223,6 +322,14 @@ class Scheduler:
             outcome = self._perform(record, ipv4, ipv6)
         except AdapterError as error:
             return self._failed(record, previous, error.code, error.as_dict())
+        except ssrf.URLRejected as rejected:
+            # The guard said no — an address inside the home network, a name
+            # that does not resolve. That is a finding about the record's
+            # settings or the network, with a message written for the user,
+            # not the "unexpected error" with a traceback it used to become.
+            code = "dns" if rejected.code == "host_unresolvable" else "config"
+            return self._failed(record, previous, code,
+                                {"code": code, "summary": rejected.message})
 
         if not outcome.ok:
             return self._failed(
@@ -240,14 +347,15 @@ class Scheduler:
         # bekannt. "ip_change_count" soll zaehlen, wie oft sich die Adresse
         # geaendert hat, nicht wie oft DNSmith hingeschaut hat.
         changed = previous is not None and (previous.current_ipv4, previous.current_ipv6) != (
-            ipv4,
-            ipv6,
+            known_ipv4,
+            known_ipv6,
         )
         history = list(previous.previous_ips) if previous else []
         if previous is not None:
             # Only the family that actually changed goes into the history —
             # the other one is still current, not "previous".
-            for old, new in ((previous.current_ipv4, ipv4), (previous.current_ipv6, ipv6)):
+            for old, new in ((previous.current_ipv4, known_ipv4),
+                             (previous.current_ipv6, known_ipv6)):
                 if old and old != new:
                     history.append(old)
 
@@ -255,8 +363,8 @@ class Scheduler:
             RecordStatus(
                 record_id=record.id,
                 state=UpdateState.SUCCESS,
-                current_ipv4=ipv4,
-                current_ipv6=ipv6,
+                current_ipv4=known_ipv4,
+                current_ipv6=known_ipv6,
                 last_attempt=_stamp(),
                 last_success=_stamp(),
                 ip_change_count=(previous.ip_change_count if previous else 0) + (1 if changed else 0),
@@ -386,14 +494,66 @@ class Scheduler:
 
     # -- bookkeeping -------------------------------------------------------
 
+    def _no_address(self, record: Record, previous: RecordStatus | None,
+                    address: PublicIP) -> RecordStatus:
+        """No address for any family this record wants: leave it alone.
+
+        The provider is not called. Every adapter would have to refuse an
+        update without an address on its own, and not all did: the custom
+        HTTP provider sent its request anyway, and a provider that falls
+        back to the caller's address could have set the record to whatever
+        address the request happened to leave from.
+
+        Nor is it the provider's failure, so it does not grow the provider's
+        backoff: the next look comes at the normal interval. Before, an hour
+        of a dead IP echo service left every record backed off for hours
+        after the address was available again.
+        """
+        reasons = [reason for reason, wanted in (
+            (address.ipv4_error, record.ip_version.wants_ipv4),
+            (address.ipv6_error, record.ip_version.wants_ipv6),
+        ) if reason and wanted]
+
+        interval = parse_duration(self.store.config.settings.poll_interval, 300.0)
+        self._defer(record, interval)
+
+        return self._remember(
+            RecordStatus(
+                record_id=record.id,
+                state=UpdateState.FAIL,
+                current_ipv4=previous.current_ipv4 if previous else None,
+                current_ipv6=previous.current_ipv6 if previous else None,
+                last_attempt=_stamp(),
+                last_success=previous.last_success if previous else None,
+                ip_change_count=previous.ip_change_count if previous else 0,
+                previous_ips=previous.previous_ips if previous else [],
+                error={
+                    "code": "ip",
+                    "summary": (
+                        "Für diesen Eintrag ist gerade keine öffentliche IP-Adresse "
+                        "bekannt. Der Eintrag beim Anbieter bleibt unverändert."
+                    ),
+                    "detail": " ".join(reasons) or None,
+                },
+            )
+        )
+
+    def _ban_remaining(self, record: Record) -> float:
+        with self._lock:
+            until = self._banned_until.get(record.id)
+        if until is None:
+            return 0.0
+        return max(until - self._clock(), 0.0)
+
     def _failed(self, record, previous, code, error) -> RecordStatus:
         banned_until = None
         if code == "banned":
             # A ban is not a retry problem. Sit out an hour rather than
             # confirming the provider's opinion of this client.
             with self._lock:
-                self._next_attempt[record.id] = self._clock() + 3600.0
-            banned_until = _stamp(3600)
+                self._next_attempt[record.id] = self._clock() + BAN_SECONDS
+                self._banned_until[record.id] = self._clock() + BAN_SECONDS
+            banned_until = _stamp(BAN_SECONDS)
         else:
             self._schedule(record, ok=False)
 

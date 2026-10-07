@@ -26,9 +26,12 @@ const state = {
   // know about yet — either a manual trigger still awaiting its response, or
   // a freshly created record whose background update (api.py::_update_soon)
   // has not reported back. Cleared once a fetched status shows a real
-  // attempt (last_attempt set), never by a timeout — a slow provider should
-  // read as "still updating", not silently drop back to "noch kein Update".
-  pendingUpdates: new Set(),
+  // attempt (last_attempt set, and different from the one it had when the
+  // update started), never by a timeout — a slow provider should read as
+  // "still updating", not silently drop back to "noch kein Update". Maps the
+  // record id to that earlier last_attempt: an edited record already has
+  // one, and "has an attempt at all" would clear it before its update ran.
+  pendingUpdates: new Map(),
 };
 
 let toastTimer = null;
@@ -157,6 +160,10 @@ function recordRow(record) {
   const when = relativeTime(status.last_success || status.last_attempt);
   bits.push(STATE_TEXT[displayState] || displayState);
   if (when) bits.push(when);
+  // What the record points at is the first thing anyone checks when a
+  // name does not resolve the way they expect.
+  const addresses = [status.current_ipv4, status.current_ipv6].filter(Boolean);
+  if (addresses.length) bits.push(addresses.join(' · '));
 
   const main = el('div', { class: 'record-main' }, [
     el('div', { class: 'record-name', text: record.display_name }),
@@ -269,7 +276,10 @@ function sleep(ms) {
 async function refreshStatus() {
   const status = await api.status();
   for (const record of status.records) {
-    if (record.status.last_attempt) state.pendingUpdates.delete(record.id);
+    const attempt = record.status.last_attempt;
+    if (attempt && attempt !== state.pendingUpdates.get(record.id)) {
+      state.pendingUpdates.delete(record.id);
+    }
   }
   state.status = status;
   return status;
@@ -509,6 +519,11 @@ function renderForm() {
 
   const fields = buildForm(form, { existing: record });
 
+  // Pausing a record without deleting it: the API always had "enabled",
+  // the interface never offered it.
+  const enabled = el('input', { type: 'checkbox', id: 'f-enabled' });
+  enabled.checked = record ? record.enabled !== false : true;
+
   const identity = el('div', { class: 'card' }, [
     el('h3', { text: 'Adresse' }),
     el('p', { class: 'small muted', text: editing
@@ -526,6 +541,17 @@ function renderForm() {
       ipVersion,
     ]),
     el('div', { class: 'field' }, [el('label', { for: 'f-label', text: 'Bezeichnung' }), label]),
+    editing
+      ? el('div', { class: 'field field-check' }, [
+          enabled,
+          el('div', {}, [
+            el('label', { for: 'f-enabled', text: 'Eintrag aktiv' }),
+            el('div', { class: 'help', text:
+              'Ausgeschaltet bleibt der Eintrag gespeichert, wird aber nicht mehr '
+              + 'aktualisiert. Der DNS-Eintrag beim Anbieter bleibt, wie er ist.' }),
+          ]),
+        ])
+      : null,
   ]);
 
   const credentials = el('div', { class: 'card' }, [
@@ -571,6 +597,7 @@ function renderForm() {
       auth_variant: fields.authVariant,
       values: fields.values(),
       record_id: record ? record.id : undefined,
+      enabled: record ? enabled.checked : undefined,
     };
   }
 
@@ -635,19 +662,31 @@ async function save(fields, payload) {
   state.busy = true;
   try {
     if (payload.record_id) {
-      await api.patchRecord(payload.record_id, {
+      const before = state.record && state.record.status
+        ? state.record.status.last_attempt || null
+        : null;
+      const saved = await api.patchRecord(payload.record_id, {
         values: payload.values,
         label: payload.label,
         auth_variant: payload.auth_variant,
+        enabled: payload.enabled,
       });
-      toast('Änderungen gespeichert.');
+      // A changed setting is applied at once, on the server, the same way a
+      // new record is (api.py::update_record). Shown as in flight until the
+      // record reports an attempt newer than the one it had before.
+      if (saved && saved.update_started) {
+        state.pendingUpdates.set(saved.id, before);
+        toast('Änderungen gespeichert — das Update läuft.');
+      } else {
+        toast('Änderungen gespeichert.');
+      }
     } else {
       const created = await api.createRecord(payload);
       // The server already kicked off the first update in the background
       // (api.py::create_record -> _update_soon) before this call returned —
       // no second update call from here, that would just hit the provider
       // twice. This only marks it as in flight so the dashboard says so.
-      state.pendingUpdates.add(created.id);
+      state.pendingUpdates.set(created.id, null);
       toast('Eintrag angelegt — das erste Update läuft bereits.');
     }
   } catch (error) {
@@ -692,7 +731,7 @@ async function forceUpdate(recordId) {
   // Marked and redrawn before the await, not after — this call blocks on the
   // real request to the provider, so without this the row just sits on
   // whatever it said before with no sign that the click did anything.
-  state.pendingUpdates.add(recordId);
+  state.pendingUpdates.set(recordId, null);
   renderDashboard();
   toast('Update wird ausgelöst…');
   try {

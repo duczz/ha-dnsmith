@@ -9,6 +9,8 @@ set by the container, not by the user.
 from __future__ import annotations
 
 import asyncio
+import ipaddress
+import json
 import logging
 import os
 import sys
@@ -21,7 +23,7 @@ from starlette.responses import FileResponse, Response
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
-from .api import BadRequest, bad_request_handler, build_routes
+from .api import EXCEPTION_HANDLERS, build_routes
 from .publicip import AddressSources, PublicIPResolver, SupervisorClient
 from .redact import ValueRedactor, install, install_everywhere
 from .registry import Registry
@@ -39,6 +41,10 @@ DEFAULTS = {
     "DNSMITH_HOST": "0.0.0.0",  # noqa: S104 - the container is the boundary
     "DNSMITH_PORT": "8099",
     "DNSMITH_LOG_LEVEL": "info",
+    # Who may talk to the hub at all: the Supervisor's Ingress gateway, and
+    # the container itself for the health check. "*" lifts the restriction,
+    # for running the hub outside Home Assistant.
+    "DNSMITH_TRUSTED_CLIENTS": "172.30.32.2,127.0.0.1,::1",
 }
 
 
@@ -68,8 +74,9 @@ def build_service() -> Service:
         # from the log.
         logger.error("%s", store.load_error)
 
-    # The Supervisor token arrives in the environment because config.yaml
-    # asks for hassio_api. Without it the entity modes cannot work, and
+    # The Supervisor token arrives in the environment, and the Supervisor
+    # answers it at the Home Assistant proxy because config.yaml asks for
+    # homeassistant_api. Without a token the entity modes cannot work, and
     # AddressSources says so instead of failing obscurely.
     supervisor = SupervisorClient()
     if not supervisor.available:
@@ -155,11 +162,85 @@ def create_app(service: Service | None = None) -> Starlette:
             except asyncio.CancelledError:
                 pass
 
-    return Starlette(
+    application = Starlette(
         routes=routes,
         lifespan=lifespan,
-        exception_handlers={BadRequest: bad_request_handler},
+        exception_handlers=EXCEPTION_HANDLERS,
     )
+    trusted = trusted_clients()
+    if trusted is None:
+        logger.warning("DNSMITH_TRUSTED_CLIENTS=*: the hub answers every client")
+        return application
+    return TrustedClients(application, trusted)
+
+
+def trusted_clients() -> frozenset | None:
+    """The addresses allowed to connect, or None for "everyone"."""
+    raw = setting("DNSMITH_TRUSTED_CLIENTS").strip()
+    if raw == "*":
+        return None
+    allowed = set()
+    for item in raw.split(","):
+        item = item.strip()
+        if not item:
+            continue
+        try:
+            allowed.add(ipaddress.ip_address(item))
+        except ValueError:
+            logger.warning("ignoring %r in DNSMITH_TRUSTED_CLIENTS: not an address", item)
+    return frozenset(allowed)
+
+
+class TrustedClients:
+    """Answer only the Ingress gateway, and nobody else on the network.
+
+    "No published port" keeps the hub off the home network, but not off the
+    Supervisor's internal one: every other add-on sits on that network and
+    could reach port 8099 directly — past Home Assistant's login, with no
+    authentication of the hub's own — and download the export with every
+    credential in it. Home Assistant's add-on documentation asks Ingress
+    add-ons for exactly this: accept connections from 172.30.32.2 only.
+
+    Judged by the socket's peer address, never by a forwarding header: any
+    client can write X-Forwarded-For, which is also why uvicorn no longer
+    trusts those headers (main()).
+    """
+
+    def __init__(self, app, allowed: frozenset) -> None:
+        self.app = app
+        self.allowed = allowed
+
+    async def __call__(self, scope, receive, send) -> None:
+        if scope["type"] in ("http", "websocket") and not self._permitted(scope.get("client")):
+            if scope["type"] == "websocket":
+                await send({"type": "websocket.close", "code": 1008})
+                return
+            body = json.dumps({"error": {
+                "code": "forbidden",
+                "message": "DNSmith ist nur über Home Assistant (Ingress) erreichbar.",
+            }}).encode("utf-8")
+            await send({
+                "type": "http.response.start",
+                "status": 403,
+                "headers": [
+                    (b"content-type", b"application/json"),
+                    (b"content-length", str(len(body)).encode("ascii")),
+                ],
+            })
+            await send({"type": "http.response.body", "body": body})
+            return
+        await self.app(scope, receive, send)
+
+    def _permitted(self, client) -> bool:
+        if not client:
+            return False
+        try:
+            address = ipaddress.ip_address(client[0])
+        except ValueError:
+            return False
+        if isinstance(address, ipaddress.IPv6Address) and address.ipv4_mapped is not None:
+            address = address.ipv4_mapped
+        return address in self.allowed
 
 
 async def _update_loop(service: Service) -> None:
@@ -189,7 +270,11 @@ UVICORN_LEVELS = frozenset({"critical", "error", "warning", "info", "debug", "tr
 # DNSMITH_LOG_LEVEL=warn would silently become "info" here, while it used to
 # mean WARNING - quieter settings would have turned chattier, which is the
 # opposite of what the person asked for.
-LEVEL_ALIASES = {"warn": "warning", "fatal": "critical", "notset": "debug"}
+LEVEL_ALIASES = {
+    "warn": "warning", "fatal": "critical", "notset": "debug",
+    # bashio's level between info and warning; the add-on option offers it.
+    "notice": "info",
+}
 
 
 def log_level() -> str:
@@ -232,11 +317,11 @@ def main() -> int:
         port=int(setting("DNSMITH_PORT")),
         log_level=log_level(),
         access_log=False,
-        # Ingress terminates in front of us and adds its own headers; trusting
-        # them lets the app see the real client, and nothing else can reach
-        # this port.
-        proxy_headers=True,
-        forwarded_allow_ips="*",
+        # Forwarding headers are NOT trusted. Nothing in the hub needs the
+        # browser's address, and trusting them would let any container on
+        # the Supervisor network claim to be the Ingress gateway with one
+        # X-Forwarded-For line and walk past TrustedClients.
+        proxy_headers=False,
     )
     return 0
 

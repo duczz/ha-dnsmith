@@ -100,7 +100,11 @@ mkdir -p "$WORK/config" "$WORK/data"
 echo '{}' > "$WORK/data/options.json"
 
 docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
+# The hub answers only the Ingress gateway and itself (app.py,
+# TrustedClients). This script talks to it from the host, through Docker's
+# port mapping, so the restriction is lifted for the test container only.
 if ! docker run -d --name "$CONTAINER" \
+      -e DNSMITH_TRUSTED_CLIENTS='*' \
       -p "127.0.0.1:$PORT:8099" \
       -v "$WORK/config:/config" \
       -v "$WORK/data:/data" \

@@ -24,6 +24,7 @@ import os
 import time
 from dataclasses import dataclass
 
+from . import USER_AGENT
 from .adapters.base import PublicIP
 from .models import IPSourceMode
 
@@ -114,7 +115,7 @@ class PublicIPResolver:
             transport=self._transport,
             follow_redirects=False,
         ) as client:
-            response = client.get(url, headers={"User-Agent": "DNSmith"})
+            response = client.get(url, headers={"User-Agent": USER_AGENT})
         # TODO(security): unlike TimeoutException/TransportError, str() on an
         # httpx.HTTPStatusError includes the full request URL with its query
         # string, and _first() above logs that error text via %s. Harmless
@@ -225,7 +226,15 @@ class SupervisorClient:
                 f"Home Assistant hat mit HTTP {response.status_code} geantwortet."
             )
 
-        state = (response.json() or {}).get("state")
+        try:
+            state = (response.json() or {}).get("state")
+        except (ValueError, AttributeError) as error:
+            # An answer that is not the state object must not escape as a
+            # bare ValueError: AddressSources would lose BOTH families over
+            # one entity, instead of reporting this one.
+            raise SupervisorUnavailable(
+                "Home Assistant hat keine lesbare Antwort geschickt."
+            ) from error
         if state in (None, "", "unknown", "unavailable"):
             raise SupervisorUnavailable(
                 f"Die Entität {entity_id} hat gerade keinen Wert ({state or 'leer'})."

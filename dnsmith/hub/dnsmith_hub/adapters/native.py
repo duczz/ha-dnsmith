@@ -28,7 +28,7 @@ import urllib.parse
 from dataclasses import dataclass, field
 from typing import Any
 
-from .. import ssrf
+from .. import USER_AGENT, ssrf
 from .base import AdapterError, ProbeResult
 
 # DynDNS2's response vocabulary. The protocol answers in plain words on a
@@ -92,50 +92,82 @@ class HTTPCaller:
         )
 
         request_headers = dict(headers or {})
-        request_headers.setdefault("User-Agent", "DNSmith")
+        request_headers.setdefault("User-Agent", USER_AGENT)
 
-        target = url
-        extensions: dict[str, Any] = {}
-
+        # Every approved address is a candidate, in the resolver's order. A
+        # host with both an A and an AAAA record is common, and so is an
+        # add-on container without an IPv6 route: connecting only to the
+        # first address turned "IPv6 is not set up in Docker" into "the
+        # provider is unreachable", although IPv4 would have worked. Only a
+        # failure to CONNECT moves on — nothing has been sent at that point,
+        # so trying the next address cannot repeat a write.
         if guarded.pinned_addresses and self._transport is None:
-            target = _url_with_address(url, guarded)
-            request_headers["Host"] = _host_header(guarded)
-            # Keep TLS validating against the real name, not the literal.
-            extensions["sni_hostname"] = guarded.host
+            candidates: tuple[Any, ...] = guarded.pinned_addresses
+        else:
+            candidates = (None,)
 
-        try:
-            with httpx.Client(
-                timeout=httpx.Timeout(REQUEST_TIMEOUT, connect=5.0),
-                transport=self._transport,
-                # A redirect can point anywhere, including back inside the
-                # network the guard just refused. The caller decides what to
-                # do with a 3xx; it is never followed automatically.
-                follow_redirects=False,
-                verify=True,
-            ) as client:
-                response = client.request(
-                    method.upper(),
-                    target,
-                    params=params,
-                    headers=request_headers,
-                    auth=auth,
-                    json=json_body,
-                    data=form_body,
-                    # Raw bytes, for the one case where the body must go out
-                    # byte for byte as it was: OVH signs the serialised body,
-                    # and a re-encoding with different spacing would break the
-                    # signature while looking identical.
-                    content=content,
-                    extensions=extensions or None,
-                )
-        except httpx.TimeoutException as error:
+        response = None
+        connect_error: Exception | None = None
+        for address in candidates:
+            target = url
+            attempt_headers = dict(request_headers)
+            extensions: dict[str, Any] = {}
+
+            if address is not None:
+                target = _url_with_address(url, guarded, address)
+                attempt_headers["Host"] = _host_header(guarded)
+                # Keep TLS validating against the real name, not the literal.
+                extensions["sni_hostname"] = guarded.host
+
+            try:
+                with httpx.Client(
+                    timeout=httpx.Timeout(REQUEST_TIMEOUT, connect=5.0),
+                    transport=self._transport,
+                    # A redirect can point anywhere, including back inside the
+                    # network the guard just refused. The caller decides what
+                    # to do with a 3xx; it is never followed automatically.
+                    follow_redirects=False,
+                    verify=True,
+                ) as client:
+                    response = client.request(
+                        method.upper(),
+                        target,
+                        params=params,
+                        headers=attempt_headers,
+                        auth=auth,
+                        json=json_body,
+                        data=form_body,
+                        # Raw bytes, for the one case where the body must go
+                        # out byte for byte as it was: OVH signs the
+                        # serialised body, and a re-encoding with different
+                        # spacing would break the signature while looking
+                        # identical.
+                        content=content,
+                        extensions=extensions or None,
+                    )
+                break
+            except (httpx.ConnectError, httpx.ConnectTimeout) as error:
+                connect_error = error
+                continue
+            except httpx.TimeoutException as error:
+                raise AdapterError(
+                    "timeout", "Der Anbieter hat nicht rechtzeitig geantwortet.",
+                    detail=str(error),
+                ) from error
+            except httpx.TransportError as error:
+                raise AdapterError(
+                    "network", "Der Anbieter war nicht erreichbar.", detail=str(error)
+                ) from error
+
+        if response is None:
+            if isinstance(connect_error, httpx.ConnectTimeout):
+                raise AdapterError(
+                    "timeout", "Der Anbieter hat nicht rechtzeitig geantwortet.",
+                    detail=str(connect_error),
+                ) from connect_error
             raise AdapterError(
-                "timeout", "Der Anbieter hat nicht rechtzeitig geantwortet.", detail=str(error)
-            ) from error
-        except httpx.TransportError as error:
-            raise AdapterError(
-                "network", "Der Anbieter war nicht erreichbar.", detail=str(error)
-            ) from error
+                "network", "Der Anbieter war nicht erreichbar.", detail=str(connect_error)
+            ) from connect_error
 
         if response.status_code in (301, 302, 303, 307, 308):
             raise AdapterError(
@@ -149,8 +181,8 @@ class HTTPCaller:
         return response.status_code, body
 
 
-def _url_with_address(url: str, guarded: ssrf.GuardedURL) -> str:
-    address = guarded.pinned_address
+def _url_with_address(url: str, guarded: ssrf.GuardedURL, address=None) -> str:
+    address = guarded.pinned_address if address is None else address
     literal = f"[{address}]" if isinstance(address, ipaddress.IPv6Address) else str(address)
     # Swap only the host part; path, query and fragment are untouched.
     return re.sub(
@@ -545,8 +577,23 @@ class NativeAdapter:
                     "Dieser Anbieter ist in dieser Version noch nicht umgesetzt.",
                 )
             if adapter == "python":
-                raise AdapterError(
-                    "not_implemented", "Für diesen Anbieter fehlt noch das Adapter-Modul."
+                # The module exists — manifest_merge.py refuses a manifest
+                # whose module has no file — so "missing" was never true.
+                # What a module offers is an update, not a read-only call, so
+                # the honest result is the same as for any provider without a
+                # lookup: the form is complete (service.probe() validated it
+                # before calling here), the rest shows on the first update.
+                # The endpoints are fixed in the module, so there is no
+                # user-supplied URL to check either.
+                return ProbeResult(
+                    ok=True,
+                    mode=mode,
+                    duration_ms=_elapsed(started),
+                    checked="settings",
+                    message=(
+                        "Die Angaben sind vollständig. Ob der Anbieter sie annimmt, "
+                        "zeigt sich beim ersten Update."
+                    ),
                 )
 
             # Settings first: a missing password is the user's problem to fix,
@@ -1109,8 +1156,12 @@ def evaluate(spec: RequestSpec, status: int, body: str) -> UpdateOutcome:
     text = (body or "").strip()
     lowered = text.lower()
 
+    # Matched as words, like the success markers below. A plain substring
+    # test let a short marker fire inside a longer word — duckdns' "KO"
+    # inside anything spelled with "ko", an "error" inside "noerror" — and
+    # report a successful update as failed.
     for marker, code in spec.failures.items():
-        if marker.lower() in lowered:
+        if _contains_marker(lowered, marker):
             return UpdateOutcome(False, code, FAILURE_MESSAGES.get(code, FAILURE_MESSAGES["unknown"]),
                                  text[:200])
 

@@ -123,7 +123,9 @@ verschlüsselten Backups von Home Assistant.
 
 - kein `host_network`, keine offenen Ports, kein `privileged`
 - eigenes AppArmor-Profil; schreibbar sind nur `/config/dnsmith` und `/data`
-- kein zweiter Prozess, kein interner Netzwerk-Port
+- kein zweiter Prozess; die Oberfläche antwortet nur dem Ingress-Gateway von
+  Home Assistant (172.30.32.2) — andere Apps im internen Netz werden
+  abgewiesen, auch wenn sie den Port kennen
 - keine vom Nutzer angegebene URL darf ins lokale Netz zeigen:
   jede aufgelöste Adresse wird geprüft, Weiterleitungen werden nicht verfolgt
 
@@ -167,6 +169,24 @@ Reparieren die App neu starten.
 **Ein Eintrag bleibt auf „noch kein Update"** — DNSmith aktualisiert nur bei
 tatsächlicher IP-Änderung. Über **Aktualisieren** lässt sich ein Update
 erzwingen.
+
+**Zugangsdaten korrigiert** — ein Eintrag wird nach dem Speichern sofort
+aktualisiert, sobald sich Felder oder Zugangsdaten geändert haben; eine
+laufende Wartezeit nach Fehlern oder eine Sperre wird dabei zurückgesetzt.
+Nur eine geänderte Bezeichnung löst nichts aus.
+
+**Einen Eintrag vorübergehend anhalten** — in der Bearbeitungsansicht
+„Eintrag aktiv" ausschalten. Der Eintrag bleibt gespeichert, der DNS-Eintrag
+beim Anbieter unverändert.
+
+**Ist eine Adressfamilie gerade nicht ermittelbar**, etwa weil der
+IPv6-Dienst nicht antwortet, bleibt der zuletzt geschriebene Wert beim
+Anbieter stehen, und DNSmith sendet nur, was sich tatsächlich geändert hat.
+Ist gar keine Adresse bekannt, wird der Anbieter nicht angefragt.
+
+**Mehr im Protokoll sehen** — im Reiter **Konfiguration** der App
+`log_level` auf `debug` stellen und die App neu starten. Zugangsdaten werden
+auch dann herausgefiltert.
 
 **Der Anbieter sperrt den Zugang** — meist die Folge wiederholter Updates mit
 unveränderter Adresse. Intervall verlängern und warten, bis die Sperre

@@ -514,5 +514,106 @@ class TestHealthEndpoints(APITestCase):
         self.assertEqual(response.headers["X-Content-Type-Options"], "nosniff")
 
 
+
+class TestEditingARecord(APITestCase):
+    def test_a_changed_credential_is_applied_at_once(self):
+        record_id = self.create_generic().json()["id"]
+        self.settle(1)
+        calls = len(self.caller.calls)
+
+        response = self.client.patch(f"/api/v1/records/{record_id}", json={
+            "values": {"server": "https://dyndns.example.org/nic/update",
+                       "username": "u", "password": "a-corrected-password"},
+        })
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.json()["update_started"])
+        self.settle(calls + 1)
+        self.assertEqual(len(self.caller.calls), calls + 1)
+        self.assertEqual(self.caller.calls[-1]["auth"], ("u", "a-corrected-password"))
+
+    def test_a_new_label_triggers_nothing(self):
+        record_id = self.create_generic().json()["id"]
+        self.settle(1)
+        calls = len(self.caller.calls)
+
+        response = self.client.patch(f"/api/v1/records/{record_id}", json={"label": "Büro"})
+
+        self.assertFalse(response.json()["update_started"])
+        time.sleep(0.1)
+        self.assertEqual(len(self.caller.calls), calls)
+
+
+class TestUnreadableConfigurationOverHTTP(APITestCase):
+    def test_a_write_says_why_instead_of_a_bare_500(self):
+        store = self.service.store
+        store.load()
+        store._load_error = "Die gespeicherte Konfiguration konnte nicht gelesen werden."
+
+        response = self.client.put("/api/v1/settings", json={"poll_interval": "10m"})
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()["error"]["code"], "config_unreadable")
+
+        created = self.create_duckdns()
+        self.assertEqual(created.status_code, 409)
+        # Refused before anything changed, not half-done and then refused.
+        self.assertEqual(store.records(), [])
+        self.assertEqual(self.service.secrets.all_values(), set())
+        self.assertEqual(store.config.settings.poll_interval, "5m")
+
+
+class TestSettingsEndpoint(APITestCase):
+    def test_an_unreadable_interval_is_422(self):
+        response = self.client.put("/api/v1/settings", json={"poll_interval": "5 Minuten"})
+        self.assertEqual(response.status_code, 422)
+        self.assertIn("30s, 5m oder 1h", response.json()["error"]["message"])
+
+    def test_a_readable_interval_is_saved(self):
+        response = self.client.put("/api/v1/settings", json={"poll_interval": "15m"})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["poll_interval"], "15m")
+
+
+class TestOnlyIngressMayConnect(APITestCase):
+    """Every add-on shares the Supervisor network; only Ingress may talk."""
+
+    def app_with(self, trusted=None):
+        import os
+        from unittest import mock
+        from dnsmith_hub import app as app_module
+
+        env = {"DNSMITH_FRONTEND_DIR": str(ROOT / "dnsmith/frontend")}
+        if trusted is not None:
+            env["DNSMITH_TRUSTED_CLIENTS"] = trusted
+        with mock.patch.dict(os.environ, env):
+            if trusted is None:
+                os.environ.pop("DNSMITH_TRUSTED_CLIENTS", None)
+            return app_module.create_app(self.service)
+
+    def test_the_ingress_gateway_is_answered(self):
+        client = TestClient(self.app_with(), client=("172.30.32.2", 40000))
+        self.assertEqual(client.get("/api/v1/records").status_code, 200)
+
+    def test_the_container_itself_is_answered_for_the_health_check(self):
+        client = TestClient(self.app_with(), client=("127.0.0.1", 40000))
+        self.assertEqual(client.get("/healthz").status_code, 200)
+
+    def test_another_container_is_refused(self):
+        client = TestClient(self.app_with(), client=("172.30.33.5", 40000))
+        response = client.get("/api/v1/config/export?include_secrets=true")
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json()["error"]["code"], "forbidden")
+
+    def test_a_forwarding_header_does_not_open_the_door(self):
+        client = TestClient(self.app_with(), client=("172.30.33.5", 40000))
+        response = client.get("/api/v1/records",
+                              headers={"X-Forwarded-For": "172.30.32.2"})
+        self.assertEqual(response.status_code, 403)
+
+    def test_the_restriction_can_be_lifted_outside_home_assistant(self):
+        client = TestClient(self.app_with("*"), client=("192.0.2.50", 40000))
+        self.assertEqual(client.get("/api/v1/records").status_code, 200)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

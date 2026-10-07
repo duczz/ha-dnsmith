@@ -420,6 +420,21 @@ class TestProviderQuirks(unittest.TestCase):
         self.assertFalse(outcome.ok)
         self.assertEqual(outcome.code, "auth")
 
+    def test_zoneedit_any_other_refusal_is_not_a_success(self):
+        """ZoneEdit answers every refusal with an HTTP 200."""
+        data = manifest("zoneedit")
+        for body, ok in (
+            ('<ERROR CODE="707" TEXT="Duplicate updates for the same host/ip" ZONE="example.com">', False),
+            ('<SUCCESS CODE="200" TEXT="Update succeeded." ZONE="example.com" IP="203.0.113.7">', True),
+        ):
+            with self.subTest(body=body):
+                native = NativeAdapter(caller=Caller(200, body))
+                outcome = native.update_declarative(
+                    data["request"], values_for(data), ipv4="203.0.113.7",
+                    hostname="home.example.com", domain="example.com", owner="home",
+                )
+                self.assertEqual(outcome.ok, ok)
+
     def test_zoneedit_rate_limit_is_recognised(self):
         data = manifest("zoneedit")
         native = NativeAdapter(

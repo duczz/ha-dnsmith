@@ -118,6 +118,19 @@ class ConfigStore:
         if not self._loaded:
             self.load()
 
+    def _ensure_writable(self) -> None:
+        """Refuse a change BEFORE anything is changed.
+
+        save() refuses too, but only at the end: by then the record had been
+        appended to the configuration in memory and its credentials written
+        to disk. The interface listed it, the scheduler updated it, and the
+        next restart quietly lost it — a change reported as an error that
+        had half happened anyway.
+        """
+        self._ensure_loaded()
+        if self._load_error:
+            raise ConfigUnreadable(self._load_error)
+
     def save(self) -> None:
         with self._lock:
             # The in-memory configuration is empty because reading failed,
@@ -183,7 +196,7 @@ class ConfigStore:
         enabled: bool = True,
     ) -> Record:
         with self._lock:
-            self._ensure_loaded()
+            self._ensure_writable()
             provider = self._registry.get(provider_id)
 
             problems: dict[str, str] = {}
@@ -252,7 +265,7 @@ class ConfigStore:
         happens.
         """
         with self._lock:
-            self._ensure_loaded()
+            self._ensure_writable()
             record = self.record(record_id)
             provider = self._registry.get(record.provider_id)
 
@@ -283,7 +296,7 @@ class ConfigStore:
 
     def delete_record(self, record_id: str) -> Record:
         with self._lock:
-            self._ensure_loaded()
+            self._ensure_writable()
             record = self.record(record_id)
 
             self._config.records = [
@@ -301,7 +314,8 @@ class ConfigStore:
 
     def update_settings(self, changes: dict[str, Any]) -> None:
         with self._lock:
-            self._ensure_loaded()
+            self._ensure_writable()
+            _check_durations(changes)
             merged = self._config.settings.model_dump(mode="json")
             merged.update(changes)
             self._config.settings = type(self._config.settings).model_validate(merged)
@@ -398,6 +412,46 @@ class ConfigStore:
         identity_provider = f"native:{provider.id}"
         engine_version = _primary_engine_version(ip_version)
         return derive_record_id(identity_provider, domain, owner, engine_version, ipv6_suffix)
+
+
+# The bounds for the two durations on the settings page. The interval has a
+# floor because the update loop never looks more often than every 30
+# seconds — a shorter value would promise something that does not happen.
+# The cooldown may be 0, which switches it off.
+_DURATION_LIMITS = {
+    "poll_interval": ("Das Prüfintervall", 30.0, 24 * 3600.0),
+    "update_cooldown": ("Der Mindestabstand zwischen Updates", 0.0, 24 * 3600.0),
+}
+
+
+def _check_durations(changes: dict[str, Any]) -> None:
+    """Refuse a duration the scheduler would silently replace.
+
+    parse_duration() falls back to a default for anything it cannot read, so
+    "5 min" or "1d" used to be saved, shown back as entered, and quietly run
+    as five minutes. Checked here rather than in the model on purpose: a
+    stored configuration that already holds such a value has to keep
+    loading, and only a new value from the settings page is refused.
+    """
+    from .scheduler import DURATION, parse_duration
+
+    problems = []
+    for key, (label, minimum, maximum) in _DURATION_LIMITS.items():
+        if key not in changes:
+            continue
+        text = str(changes[key] or "").strip()
+        if not DURATION.match(text):
+            problems.append(
+                f"{label} muss eine Zahl mit Einheit sein, etwa 30s, 5m oder 1h."
+            )
+            continue
+        seconds = parse_duration(text, -1.0)
+        if seconds < minimum or seconds > maximum:
+            low = f"{int(minimum)} Sekunden" if minimum else "0"
+            problems.append(f"{label} muss zwischen {low} und 24 Stunden liegen.")
+        changes[key] = text
+    if problems:
+        raise ValueError(" ".join(problems))
 
 
 def _stale_variant_fields(provider: Provider, active_variant: str) -> set[str]:

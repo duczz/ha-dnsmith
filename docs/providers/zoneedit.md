@@ -25,4 +25,4 @@ Einordnung: DNS-Anbieter
 
 ---
 
-Stand: 16.09.2026.
+Stand: 07.10.2026.

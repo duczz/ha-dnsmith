@@ -29,6 +29,7 @@ request:
     failed login: auth
     invalid hostname: not_found
     minimum 600 seconds between requests: rate_limit
+    <error: provider_response
 fields:
 - id: username
   type: text
@@ -45,5 +46,5 @@ fields:
 
     '
 generated:
-  generated_at: '2026-09-16T11:53:31Z'
+  generated_at: '2026-10-07T13:45:25Z'
   source: src

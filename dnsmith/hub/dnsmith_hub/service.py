@@ -80,6 +80,39 @@ class Service:
         self.apply()
         return record
 
+    def update_record(self, record_id: str, payload: dict[str, Any]) -> tuple[Record, bool]:
+        """Change a record, and say whether it needs an update now.
+
+        An edit that changed what is sent — a field, a credential — or that
+        switched the record back on is applied at once: the unchanged-address
+        check would otherwise keep reporting "aktuell" with the old settings
+        until the address next moved, and a backoff earned by the old,
+        wrong credentials would hold back the corrected ones for hours. A
+        label alone changes nothing at the provider and triggers nothing.
+        """
+        before = self.store.record(record_id)
+        was_enabled = before.enabled
+        fields_before = dict(before.fields)
+        secrets_before = self.secrets.for_record(record_id)
+
+        record = self.store.update_record(
+            record_id,
+            values=payload.get("values"),
+            label=payload.get("label"),
+            enabled=payload.get("enabled"),
+            auth_variant=payload.get("auth_variant"),
+        )
+        self.apply()
+
+        changed = (
+            dict(record.fields) != fields_before
+            or self.secrets.for_record(record_id) != secrets_before
+            or (record.enabled and not was_enabled)
+        )
+        if changed:
+            self.scheduler.invalidate(record_id)
+        return record, changed and record.enabled
+
     def delete_record(self, record_id: str) -> Record:
         record = self.store.delete_record(record_id)
         self.scheduler.forget(record_id)

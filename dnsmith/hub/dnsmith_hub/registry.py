@@ -568,7 +568,12 @@ def validate_values(
 
         raw = values.get(field_id)
         supplied = raw not in (None, "")
-        if not supplied and field_id in known_secrets:
+        # A stored secret counts as supplied only while the submission
+        # leaves it OUT. Sent as "" or null it is a deletion — that is what
+        # SecretStore.set_many() makes of it — and a required credential
+        # deleted after passing validation left a record that failed every
+        # update with "Zugangsdaten fehlen".
+        if not supplied and field_id in known_secrets and field_id not in values:
             supplied = True
 
         required = bool(field.get("required", False)) or field_id in variant_fields
@@ -580,6 +585,8 @@ def validate_values(
             continue
 
         problem = _check_value(field, raw)
+        if not problem and field["type"] == "url":
+            problem = _check_url(raw, allow_http=bool(values.get("allow_http")))
         if problem:
             problems.setdefault(field_id, problem)
 
@@ -676,6 +683,23 @@ def _check_value(field: dict[str, Any], raw: Any) -> str | None:
     if "max_length" in rules and len(text) > rules["max_length"]:
         return f"Höchstens {rules['max_length']} Zeichen."
 
+    return None
+
+
+def _check_url(raw: Any, *, allow_http: bool) -> str | None:
+    """Refuse a URL the updater would refuse, when it is saved.
+
+    Only "Angaben prüfen" used to look at it. A record whose URL pointed
+    into the home network was saved without a word and then failed on every
+    single update. Checked without resolving the name: whether it resolves
+    is a question for the moment of the update, not for the form.
+    """
+    from . import ssrf
+
+    try:
+        ssrf.check_url(str(raw), allow_http=allow_http, resolve=False)
+    except ssrf.URLRejected as rejected:
+        return rejected.message
     return None
 
 

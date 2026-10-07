@@ -2150,5 +2150,413 @@ class TestHostPinning(unittest.TestCase):
         self.assertEqual(native._host_header(guarded), "example.com:8443")
 
 
+
+# ---------------------------------------------------------------------------
+# Scheduler: what happens around the provider call
+# ---------------------------------------------------------------------------
+
+
+class TestNoAddressLeavesTheRecordAlone(HubTestCase):
+    """Without an address the provider is not asked at all."""
+
+    def no_address(self, **errors):
+        from dnsmith_hub.adapters.base import PublicIP
+        self.sources.value = PublicIP(**errors)
+
+    def test_the_provider_is_not_called(self):
+        record = self.add_generic()
+        self.no_address(ipv4_error="Die Entität sensor.wan_ip hat gerade keinen Wert.")
+
+        status = self.scheduler.update(record.id)
+
+        self.assertEqual(self.caller.calls, [])
+        self.assertEqual(status.state.value, "fail")
+        self.assertEqual(status.error["code"], "ip")
+        # The reason the source gave is what the user needs to see.
+        self.assertIn("sensor.wan_ip", status.error["detail"])
+
+    def test_it_does_not_grow_the_provider_backoff(self):
+        record = self.add_generic()
+        self.scheduler.update(record.id)              # one success
+        self.no_address()
+        self.scheduler.update(record.id)              # source outage
+        self.scheduler.update(record.id)              # still out
+
+        self.assertNotIn(record.id, self.scheduler._backoff)
+
+    def test_the_custom_http_provider_is_not_sent_without_an_address(self):
+        """It was the one adapter that did not refuse on its own."""
+        record = self.service.create_record({
+            "provider_id": "custom_http",
+            "domain": "home.example.com",
+            "owner": "@",
+            "ip_version": "ipv4",
+            "values": {"url": "https://ddns.example.org/update", "method": "GET",
+                       "auth_mode": "none", "success_mode": "status"},
+        })
+        self.no_address()
+
+        self.scheduler.update(record.id)
+
+        self.assertEqual(self.caller.calls, [])
+
+
+class TestAFamilyThatCouldNotBeDetermined(HubTestCase):
+    """A failed lookup for one family is not a change of address."""
+
+    def setUp(self):
+        super().setUp()
+        self.sources = StubSources(ipv4="203.0.113.9", ipv6="2001:db8::1")
+        self.scheduler.sources = self.sources
+
+    def set_address(self, ipv4, ipv6):
+        from dnsmith_hub.adapters.base import PublicIP
+        self.sources.value = PublicIP(ipv4=ipv4, ipv6=ipv6, ipv4_source="stub")
+
+    def test_a_missing_ipv6_is_not_written_and_not_forgotten(self):
+        record = self.add_generic(ip_version="dual_stack")
+        self.scheduler.update(record.id)
+        calls = len(self.caller.calls)
+
+        self.set_address("203.0.113.9", None)
+        self.scheduler._next_attempt.clear()
+        # The cooldown would hold back a second write on its own; without
+        # clearing it this test passes whether or not the lookup gap is
+        # treated as "nothing moved".
+        self.scheduler._last_write.clear()
+        status = self.scheduler.tick()[0]
+
+        self.assertEqual(len(self.caller.calls), calls, "nothing moved, nothing to send")
+        self.assertEqual(status.current_ipv6, "2001:db8::1")
+        self.assertEqual(status.previous_ips, [])
+        self.assertEqual(status.ip_change_count, 0)
+
+        # And when it comes back unchanged, still nothing to send.
+        self.set_address("203.0.113.9", "2001:db8::1")
+        self.scheduler._next_attempt.clear()
+        self.scheduler._last_write.clear()
+        self.scheduler.tick()
+        self.assertEqual(len(self.caller.calls), calls)
+
+    def test_the_family_that_did_move_is_still_sent(self):
+        record = self.add_generic(ip_version="dual_stack")
+        self.scheduler.update(record.id)
+        calls = len(self.caller.calls)
+
+        self.set_address("198.51.100.4", None)
+        self.scheduler._next_attempt.clear()
+        self.scheduler._last_write.clear()
+        status = self.scheduler.tick()[0]
+
+        self.assertEqual(len(self.caller.calls), calls + 1)
+        sent = self.caller.calls[-1]["params"]
+        self.assertEqual(sent.get("myip"), "198.51.100.4")
+        self.assertNotIn("myipv6", sent)
+        self.assertEqual(status.current_ipv4, "198.51.100.4")
+        self.assertEqual(status.current_ipv6, "2001:db8::1")
+        self.assertEqual(status.previous_ips, ["203.0.113.9"])
+
+
+class TestBansAndEdits(HubTestCase):
+    def ban(self):
+        record = self.add_generic()
+        self.caller.body = "abuse"
+        self.scheduler.update(record.id)
+        self.caller.body = "good"
+        return record
+
+    def test_a_ban_holds_against_a_manual_update_too(self):
+        record = self.ban()
+        before = len(self.caller.calls)
+
+        status = self.scheduler.update(record.id)
+        self.scheduler.update_all()
+
+        self.assertEqual(len(self.caller.calls), before)
+        self.assertEqual(status.error["code"], "banned")
+
+    def test_editing_the_record_lifts_the_ban(self):
+        record = self.ban()
+        before = len(self.caller.calls)
+
+        self.scheduler.invalidate(record.id)
+        status = self.scheduler.update(record.id)
+
+        self.assertEqual(len(self.caller.calls), before + 1)
+        self.assertEqual(status.state.value, "success")
+
+    def test_editing_the_record_resets_its_backoff(self):
+        record = self.add_generic()
+        self.caller.body = "dnserr"
+        self.scheduler.update(record.id)
+        before = len(self.caller.calls)
+        self.scheduler.tick()
+        self.assertEqual(len(self.caller.calls), before, "backed off")
+
+        self.scheduler.invalidate(record.id)
+        self.scheduler.tick()
+
+        self.assertEqual(len(self.caller.calls), before + 1)
+
+    def test_an_edit_that_changes_a_credential_asks_for_an_update(self):
+        record = self.add_generic()
+        _, update_now = self.service.update_record(
+            record.id, {"values": {"server": "https://dyndns.example.org/nic/update",
+                                   "username": "u", "password": "a-new-password"}})
+        self.assertTrue(update_now)
+
+    def test_an_edit_of_the_label_alone_does_not(self):
+        record = self.add_generic()
+        _, update_now = self.service.update_record(record.id, {"label": "Zuhause"})
+        self.assertFalse(update_now)
+
+    def test_resubmitting_the_same_values_does_not(self):
+        """What the form sends on an unchanged save: a blank secret is left out."""
+        record = self.add_generic()
+        _, update_now = self.service.update_record(
+            record.id, {"values": {"server": "https://dyndns.example.org/nic/update",
+                                   "username": "u"}})
+        self.assertFalse(update_now)
+
+    def test_a_required_secret_cannot_be_blanked_out(self):
+        record = self.add_generic()
+        with self.assertRaises(ValidationProblem) as caught:
+            self.service.update_record(
+                record.id, {"values": {"server": "https://dyndns.example.org/nic/update",
+                                       "username": "u", "password": ""}})
+        self.assertIn("password", caught.exception.problems)
+        self.assertEqual(self.secrets.get(record.id, "password"), "update-password")
+
+    def test_switching_a_record_back_on_does(self):
+        record = self.add_generic()
+        self.service.update_record(record.id, {"enabled": False})
+        _, update_now = self.service.update_record(record.id, {"enabled": True})
+        self.assertTrue(update_now)
+
+
+class TestOneUpdatePerRecordAtATime(HubTestCase):
+    def test_a_pass_waiting_behind_a_manual_update_does_not_repeat_it(self):
+        import threading
+
+        record = self.add_generic()
+        entered, release = threading.Event(), threading.Event()
+        original = self.caller.call
+
+        def slow_call(url, **kwargs):
+            entered.set()
+            release.wait(5)
+            return original(url, **kwargs)
+
+        self.caller.call = slow_call
+
+        manual = threading.Thread(target=self.scheduler.update, args=(record.id,))
+        manual.start()
+        self.assertTrue(entered.wait(5))
+
+        timed = threading.Thread(target=self.scheduler.tick)
+        timed.start()
+        timed.join(0.2)
+        self.assertTrue(timed.is_alive(), "the pass waits for the record's lock")
+
+        release.set()
+        manual.join(5)
+        timed.join(5)
+
+        self.assertEqual(len(self.caller.calls), 1)
+
+    def test_a_record_deleted_while_waiting_is_not_updated(self):
+        record = self.add_generic()
+        lock = self.scheduler._record_lock(record.id)
+        with lock:
+            self.service.delete_record(record.id)
+        self.assertEqual(self.scheduler.tick(), [])
+        self.assertEqual(self.caller.calls, [])
+        self.assertNotIn(record.id, self.scheduler.statuses())
+
+
+class TestUserSuppliedURLs(HubTestCase):
+    def custom(self, url):
+        return self.service.create_record({
+            "provider_id": "custom_http",
+            "domain": "home.example.com",
+            "owner": "@",
+            "ip_version": "ipv4",
+            "values": {"url": url, "method": "GET", "auth_mode": "none",
+                       "success_mode": "status"},
+        })
+
+    def test_a_url_into_the_home_network_is_refused_when_saved(self):
+        with self.assertRaises(ValidationProblem) as caught:
+            self.custom("https://192.168.1.1/update")
+        self.assertIn("url", caught.exception.problems)
+        self.assertEqual(self.store.records(), [])
+
+    def test_a_refusal_at_update_time_is_a_finding_not_a_crash(self):
+        """A name that resolves inward only shows when the update runs."""
+        record = self.custom("https://ddns.example.org/update")
+        rejected = ssrf.URLRejected("address_not_public", "zeigt ins lokale Netz")
+        self.caller.fail_with = rejected
+
+        with self.assertNoLogs("dnsmith.hub", level="ERROR"):
+            status = self.scheduler.update(record.id)
+
+        self.assertEqual(status.error["code"], "config")
+        self.assertEqual(status.error["summary"], "zeigt ins lokale Netz")
+
+
+# ---------------------------------------------------------------------------
+# The executor and the outbound call
+# ---------------------------------------------------------------------------
+
+
+class TestConnectFallback(unittest.TestCase):
+    """An address that cannot be connected to hands over to the next one."""
+
+    def run_with(self, failing: set[str]):
+        import httpx
+        from unittest import mock
+
+        seen = []
+        self.user_agents = []
+        test = self
+
+        class FakeClient:
+            def __init__(self, **kwargs):
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+            def request(self, method, url, **kwargs):
+                seen.append((url, kwargs["headers"].get("Host")))
+                test.user_agents.append(kwargs["headers"].get("User-Agent"))
+                for address in failing:
+                    if address in url:
+                        raise httpx.ConnectError("Network is unreachable")
+                return httpx.Response(200, content=b"good")
+
+        guarded = ssrf.GuardedURL(
+            url="https://ddns.example.org/update", scheme="https",
+            host="ddns.example.org", port=443,
+            pinned_addresses=(ipaddress.ip_address("2001:db8::10"),
+                              ipaddress.ip_address("203.0.113.10")),
+        )
+        with mock.patch.object(ssrf, "check_url", return_value=guarded), \
+                mock.patch("httpx.Client", FakeClient):
+            result = native.HTTPCaller().call("https://ddns.example.org/update")
+        return result, seen
+
+    def test_ipv4_is_tried_when_ipv6_cannot_connect(self):
+        (status, body), seen = self.run_with({"2001:db8::10"})
+
+        self.assertEqual((status, body), (200, "good"))
+        self.assertEqual([url.split("/")[2] for url, _ in seen],
+                         ["[2001:db8::10]:443", "203.0.113.10:443"])
+        self.assertTrue(all(host == "ddns.example.org" for _, host in seen))
+
+    def test_the_first_address_that_works_is_the_only_one_used(self):
+        _, seen = self.run_with(set())
+        self.assertEqual(len(seen), 1)
+
+    def test_no_address_connecting_is_a_network_error(self):
+        with self.assertRaises(AdapterError) as caught:
+            self.run_with({"2001:db8::10", "203.0.113.10"})
+        self.assertEqual(caught.exception.code, "network")
+
+    def test_the_user_agent_names_the_release(self):
+        """DynDNS2 asks for name and version; No-IP answers badagent without."""
+        from dnsmith_hub import __version__
+
+        self.run_with(set())
+        self.assertEqual(len(self.user_agents), 1)
+        self.assertIn(f"DNSmith/{__version__}", self.user_agents[0])
+
+
+class TestFailureMarkersAreWords(unittest.TestCase):
+    def outcome(self, failures, body):
+        spec = native.RequestSpec(url="https://x.example", failures=failures)
+        return native.evaluate(spec, 200, body)
+
+    def test_a_marker_inside_a_longer_word_does_not_fire(self):
+        self.assertTrue(self.outcome({"error": "provider_response"}, "NOERROR").ok)
+
+    def test_the_marker_itself_still_fires(self):
+        outcome = self.outcome({"KO": "auth"}, "KO")
+        self.assertFalse(outcome.ok)
+        self.assertEqual(outcome.code, "auth")
+
+    def test_a_marker_starting_with_punctuation_still_fires(self):
+        outcome = self.outcome({"<error": "provider_response"},
+                               '<ERROR CODE="709" TEXT="something">')
+        self.assertFalse(outcome.ok)
+
+
+class TestProbeOfAModuleProvider(unittest.TestCase):
+    """The ten providers with a module are implemented — the check says so."""
+
+    def test_a_module_provider_passes_the_settings_check(self):
+        result = native.NativeAdapter().probe(
+            {"adapter": "python", "protocol": None, "request": None, "values": {}}, "live")
+        self.assertTrue(result.ok)
+        self.assertEqual(result.checked, "settings")
+        self.assertIsNone(result.error)
+
+
+class TestSupervisorAnswers(unittest.TestCase):
+    def test_an_answer_that_is_not_json_is_reported_not_raised(self):
+        import httpx
+        from dnsmith_hub.publicip import SupervisorClient, SupervisorUnavailable
+
+        transport = httpx.MockTransport(
+            lambda request: httpx.Response(200, content=b"<html>proxy error</html>"))
+        client = SupervisorClient("token", transport=transport)
+
+        with self.assertRaises(SupervisorUnavailable):
+            client.state("sensor.wan_ip")
+
+
+# ---------------------------------------------------------------------------
+# Settings and packaging
+# ---------------------------------------------------------------------------
+
+
+class TestDurationSettings(HubTestCase):
+    def test_a_readable_duration_is_saved(self):
+        self.store.update_settings({"poll_interval": "10m", "update_cooldown": "0s"})
+        self.assertEqual(self.store.config.settings.poll_interval, "10m")
+
+    def test_an_unreadable_duration_is_refused_rather_than_replaced(self):
+        for value in ("5 min", "1d", "abc", ""):
+            with self.subTest(value=value), self.assertRaises(ValueError):
+                self.store.update_settings({"poll_interval": value})
+        self.assertEqual(self.store.config.settings.poll_interval, "5m")
+
+    def test_an_interval_below_what_the_loop_can_do_is_refused(self):
+        with self.assertRaises(ValueError):
+            self.store.update_settings({"poll_interval": "10s"})
+
+
+class TestAddonManifest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        import yaml
+        cls.config = yaml.safe_load((ROOT / "dnsmith/config.yaml").read_text(encoding="utf-8"))
+
+    def test_the_hub_knows_its_own_version(self):
+        from dnsmith_hub import __version__
+        self.assertEqual(__version__, str(self.config["version"]))
+
+    def test_the_entity_source_has_the_permission_it_needs(self):
+        """Reading an entity goes through http://supervisor/core/api, which
+        the Supervisor serves only to add-ons with homeassistant_api."""
+        self.assertTrue(self.config.get("homeassistant_api"))
+
+    def test_the_log_level_option_is_optional(self):
+        self.assertTrue(self.config["schema"]["log_level"].endswith("?"))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
