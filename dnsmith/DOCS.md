@@ -170,6 +170,17 @@ Reparieren die App neu starten.
 tatsächlicher IP-Änderung. Über **Aktualisieren** lässt sich ein Update
 erzwingen.
 
+**Ein Update ist fehlgeschlagen** — DNSmith versucht es von selbst wieder, die
+Übersicht nennt die Uhrzeit des nächsten Versuchs. Bei einer Störung des
+Anbieters (keine Antwort, Serverfehler) wächst die Wartezeit von 5 Minuten auf
+höchstens 30 Minuten. Der Eintrag ist also höchstens 30 Minuten nach der
+Rückkehr des Anbieters wieder aktuell, bei einem Prüfintervall über 30
+Minuten entsprechend später. Wurden Zugangsdaten oder Angaben abgelehnt,
+gibt es drei Versuche kurz hintereinander (sofort, nach 5 und nach 10
+Minuten), danach wird nur noch alle 30 Minuten bis 2 Stunden gefragt, weil
+sich das erst durch eine Änderung am Eintrag behebt. **Aktualisieren** fragt
+sofort nach.
+
 **Zugangsdaten korrigiert** — ein Eintrag wird nach dem Speichern sofort
 aktualisiert, sobald sich Felder oder Zugangsdaten geändert haben; eine
 laufende Wartezeit nach Fehlern oder eine Sperre wird dabei zurückgesetzt.

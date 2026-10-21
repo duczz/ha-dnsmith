@@ -2334,6 +2334,95 @@ class TestBansAndEdits(HubTestCase):
         self.assertTrue(update_now)
 
 
+class TestBackoffByKindOfFailure(HubTestCase):
+    """An outage is asked again within half an hour; a refusal is not hammered.
+
+    Every wait here is read off the scheduler after a forced update, so the
+    tests measure the curve itself and not how the timed pass happens to tick.
+    """
+
+    def setUp(self):
+        super().setUp()
+        self.now = [1000.0]
+        self.scheduler._clock = lambda: self.now[0]  # noqa: SLF001
+        self.record = self.add_generic()
+
+    def strike(self, body="dnserr"):
+        self.caller.fail_with = None
+        self.caller.body = body
+        return self.attempt()
+
+    def attempt(self):
+        self.scheduler.update(self.record.id)
+        return self.scheduler._next_attempt[self.record.id] - self.now[0]  # noqa: SLF001
+
+    def waits(self, body, times):
+        return [self.strike(body) for _ in range(times)]
+
+    def test_an_outage_is_asked_again_within_half_an_hour(self):
+        self.assertEqual(self.waits("dnserr", 7), [300, 600, 1200, 1800, 1800, 1800, 1800])
+
+    def test_a_timeout_is_an_outage_too(self):
+        self.caller.fail_with = AdapterError("timeout", "too slow")
+        self.assertEqual([self.attempt() for _ in range(5)], [300, 600, 1200, 1800, 1800])
+
+    def test_an_answer_nobody_can_read_is_treated_as_an_outage(self):
+        """Dynu answered a plain 200 "servererror" while it was down."""
+        self.assertEqual(self.waits("servererror", 5), [300, 600, 1200, 1800, 1800])
+
+    def test_a_refused_password_gets_three_tries_then_a_slow_tail(self):
+        self.assertEqual(
+            self.waits("badauth", 8),
+            [300, 600, 1800, 3600, 7200, 7200, 7200, 7200],
+        )
+
+    def test_a_change_of_kind_starts_the_count_again(self):
+        self.waits("dnserr", 5)
+        self.assertEqual(self.strike("badauth"), 300, "five timeouts do not make a refusal slow")
+        self.assertEqual(self.strike("dnserr"), 300, "and one refusal does not make an outage slow")
+
+    def test_a_success_starts_the_count_again(self):
+        self.waits("badauth", 4)
+        self.caller.body = "good"
+        self.scheduler.update(self.record.id)
+        self.assertEqual(self.strike("badauth"), 300)
+
+    def test_the_count_does_not_grow_without_end(self):
+        """Months of failures must not turn into an overflow.
+
+        A float runs out at 2 ** 1024, which a record failing every half hour
+        would reach after three weeks. The count is set directly: waiting for
+        a thousand real failures would prove the same thing slowly.
+        """
+        record_id = self.record.id
+        self.scheduler._backoff[record_id] = (False, 5000)  # noqa: SLF001
+        self.assertEqual(self.strike("dnserr"), 1800)
+        self.scheduler._backoff[record_id] = (True, 5000)  # noqa: SLF001
+        self.assertEqual(self.strike("badauth"), 7200)
+
+    def test_the_poll_interval_is_still_a_floor(self):
+        self.store.config.settings.poll_interval = "1h"
+        self.assertEqual(self.strike("dnserr"), 3600)
+
+    def test_a_failed_record_says_when_it_is_tried_again(self):
+        import calendar
+        import time
+
+        self.strike("dnserr")
+        stamp = self.service.record_payload(self.record)["status"]["next_attempt"]
+
+        self.assertIsNotNone(stamp)
+        ahead = calendar.timegm(time.strptime(stamp, "%Y-%m-%dT%H:%M:%SZ")) - time.time()
+        self.assertAlmostEqual(ahead, 300, delta=5)
+
+    def test_a_record_that_worked_has_nothing_to_announce(self):
+        self.strike("dnserr")
+        self.caller.body = "good"
+        self.scheduler.update(self.record.id)
+
+        self.assertIsNone(self.service.record_payload(self.record)["status"]["next_attempt"])
+
+
 class TestOneUpdatePerRecordAtATime(HubTestCase):
     def test_a_pass_waiting_behind_a_manual_update_does_not_repeat_it(self):
         import threading

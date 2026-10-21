@@ -122,8 +122,16 @@ class Service:
     def record_payload(self, record: Record) -> dict[str, Any]:
         payload = self.store.record_payload(record)
         status = self._statuses().get(record.id)
-        payload["status"] = _status_payload(status, record.enabled, self.redactor)
+        payload["status"] = _status_payload(
+            status, record.enabled, self.redactor, self._next_attempt(record.id, status)
+        )
         return payload
+
+    def _next_attempt(self, record_id: str, status: RecordStatus | None) -> str | None:
+        """When a failed record is tried again; nothing to say for the others."""
+        if status is None or status.state.value != "fail":
+            return None
+        return self.scheduler.next_attempt_at(record_id)
 
     def records_payload(self) -> dict[str, Any]:
         statuses = self._statuses()
@@ -132,8 +140,9 @@ class Service:
         payloads = []
         for record in records:
             payload = self.store.record_payload(record)
+            status = statuses.get(record.id)
             payload["status"] = _status_payload(
-                statuses.get(record.id), record.enabled, self.redactor
+                status, record.enabled, self.redactor, self._next_attempt(record.id, status)
             )
             payloads.append(payload)
 
@@ -305,7 +314,8 @@ class Service:
 
 
 def _status_payload(
-    status: RecordStatus | None, enabled: bool, redactor: ValueRedactor
+    status: RecordStatus | None, enabled: bool, redactor: ValueRedactor,
+    next_attempt: str | None = None,
 ) -> dict[str, Any]:
     if not enabled:
         return {"state": "disabled", "error": None}
@@ -320,6 +330,7 @@ def _status_payload(
         "last_attempt": status.last_attempt,
         "last_success": status.last_success,
         "banned_until": status.banned_until,
+        "next_attempt": next_attempt,
         "ip_change_count": status.ip_change_count,
         "previous_ips": status.previous_ips,
         # A stored status can sit here for days before anyone requests it;

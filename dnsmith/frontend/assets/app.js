@@ -127,6 +127,18 @@ function relativeTime(iso) {
   return `vor ${Math.floor(seconds / 86400)} Tagen`;
 }
 
+function nextAttemptText(iso) {
+  if (!iso) return null;
+  const at = new Date(iso);
+  if (Number.isNaN(at.getTime())) return null;
+  // Due, or overdue by the length of one pass: it runs any moment.
+  if (at.getTime() - Date.now() < 60000) return 'nächster Versuch gleich';
+  const time = at.toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+  const sameDay = at.toDateString() === new Date().toDateString();
+  const day = sameDay ? '' : `${at.toLocaleDateString('de-DE', { day: '2-digit', month: '2-digit' })} `;
+  return `nächster Versuch ${day}${time}`;
+}
+
 function errorBox(error) {
   const box = el('div', { class: 'error-box' }, [
     el('div', { text: error.message }),
@@ -160,6 +172,10 @@ function recordRow(record) {
   const when = relativeTime(status.last_success || status.last_attempt);
   bits.push(STATE_TEXT[displayState] || displayState);
   if (when) bits.push(when);
+  // A failed record is tried again by itself; saying when spares the user the
+  // guess whether anything is going to happen at all.
+  const retry = displayState === 'fail' ? nextAttemptText(status.next_attempt) : null;
+  if (retry) bits.push(retry);
   // What the record points at is the first thing anyone checks when a
   // name does not resolve the way they expect.
   const addresses = [status.current_ipv4, status.current_ipv6].filter(Boolean);

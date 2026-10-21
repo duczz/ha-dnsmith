@@ -12,7 +12,9 @@ nothing to say. This is why `previous_ips` exists.
 A failure backs off. A provider that just answered "server error" will not
 answer differently two seconds later, and a client that keeps asking is the
 kind that gets banned. The delay doubles up to a ceiling and resets on the
-first success.
+first success. How fast it grows depends on what failed: an outage heals by
+itself and is asked again soon, a rejected password heals only when someone
+changes it and is asked three times, then rarely.
 
 A ban is honoured. When a provider says abuse or badagent, the record stops
 until `banned_until` has passed. That is the one state where doing nothing is
@@ -45,11 +47,40 @@ logger = logging.getLogger("dnsmith.hub")
 DURATION = re.compile(r"^(\d+)(ms|s|m|h)$")
 _UNITS = {"ms": 0.001, "s": 1.0, "m": 60.0, "h": 3600.0}
 
-# Backoff after a failure: five minutes, doubling, capped at six hours. The cap
-# matters more than the curve — a provider that is down for a day should still
-# be retried four times in it, not once.
+# Backoff after a failure: five minutes, doubling. Two ceilings, because the
+# two kinds of failure end differently.
+#
+# A transient failure (timeout, no connection, a provider error, an answer
+# nobody could read) ends when the provider is back, and the record is stale
+# until then. The ceiling is the thirty minutes the DynDNS2 specification
+# asks for after a server error: a provider that comes back after a night is
+# asked again within half an hour, not within six.
+#
+# A hard failure (credentials refused, settings rejected, no such host) ends
+# when someone edits the record — which resets the backoff at once. Until
+# then asking more often only repeats the refusal, so the first HARD_TRIES
+# attempts follow the quick curve and every further failure starts again at
+# half an hour and doubles up to two hours. The slow tail is not a stop: a
+# provider in an outage has been seen to answer "badauth" to credentials that
+# were fine, and a record that gave up for good would never recover from that.
 BACKOFF_START = 300.0
-BACKOFF_MAX = 6 * 3600.0
+TRANSIENT_MAX = 1800.0
+HARD_TRIES = 3
+HARD_SLOW_START = 1800.0
+HARD_MAX = 7200.0
+# Failure counts stop growing here; 2 ** n never gets large enough to matter.
+MAX_FAILURES = 32
+
+HARD_CODES = frozenset({"auth", "config", "account", "not_found", "redirect_refused"})
+
+
+def backoff_delay(hard: bool, failures: int) -> float:
+    """How long to wait after the `failures`-th failure in a row (1-based)."""
+    if not hard:
+        return min(BACKOFF_START * 2 ** (failures - 1), TRANSIENT_MAX)
+    if failures < HARD_TRIES:
+        return BACKOFF_START * 2 ** (failures - 1)
+    return min(HARD_SLOW_START * 2 ** (failures - HARD_TRIES), HARD_MAX)
 
 # How long a record sits out after the provider said "abuse" or "badagent".
 BAN_SECONDS = 3600.0
@@ -89,7 +120,9 @@ class Scheduler:
         self._lock = threading.Lock()
         self._statuses: dict[str, RecordStatus] = {}
         self._next_attempt: dict[str, float] = {}
-        self._backoff: dict[str, float] = {}
+        # (hard?, failures in a row) per record. A change of kind starts the
+        # count again: six timeouts do not make a refused password slow.
+        self._backoff: dict[str, tuple[bool, int]] = {}
         self._last_write: dict[str, float] = {}
         self._banned_until: dict[str, float] = {}
         # One lock per record, so the same record is never updated twice at
@@ -105,6 +138,19 @@ class Scheduler:
     def statuses(self) -> dict[str, RecordStatus]:
         with self._lock:
             return dict(self._statuses)
+
+    def next_attempt_at(self, record_id: str) -> str | None:
+        """When the timed pass will look at this record next, as a UTC stamp.
+
+        Only meaningful for a record that is waiting out a failure; the caller
+        decides when to show it. The scheduler's clock is monotonic, so the
+        remaining wait is turned into a wall-clock time here.
+        """
+        with self._lock:
+            due = self._next_attempt.get(record_id)
+        if due is None:
+            return None
+        return _stamp(max(due - self._clock(), 0.0))
 
     def public_ip(self, refresh: bool = False) -> PublicIP:
         return self.sources.get(self.store.config.settings, refresh)
@@ -124,7 +170,7 @@ class Scheduler:
         no longer apply.
 
         Without this, a user who fixed a wrong password after a failure
-        still waited out a backoff of up to six hours for credentials that
+        still waited out a backoff of up to two hours for credentials that
         had already been corrected — and a ban the user has meanwhile sorted
         out with the provider kept the record parked for the rest of the
         hour. Saving the record is a deliberate act, the same consent as
@@ -555,7 +601,7 @@ class Scheduler:
                 self._banned_until[record.id] = self._clock() + BAN_SECONDS
             banned_until = _stamp(BAN_SECONDS)
         else:
-            self._schedule(record, ok=False)
+            self._schedule(record, ok=False, code=code)
 
         return self._remember(
             RecordStatus(
@@ -591,7 +637,7 @@ class Scheduler:
         remaining = cooldown - (self._clock() - last)
         return max(remaining, 0.0)
 
-    def _schedule(self, record: Record, *, ok: bool) -> None:
+    def _schedule(self, record: Record, *, ok: bool, code: str | None = None) -> None:
         interval = parse_duration(self.store.config.settings.poll_interval, 300.0)
 
         with self._lock:
@@ -599,11 +645,13 @@ class Scheduler:
                 self._backoff.pop(record.id, None)
                 delay = interval
             else:
-                delay = min(self._backoff.get(record.id, 0.0) * 2 or BACKOFF_START, BACKOFF_MAX)
-                self._backoff[record.id] = delay
+                hard = code in HARD_CODES
+                was_hard, failures = self._backoff.get(record.id, (hard, 0))
+                failures = min((failures if was_hard == hard else 0) + 1, MAX_FAILURES)
+                self._backoff[record.id] = (hard, failures)
                 # Never back off to less often than the normal interval would
                 # have been, and never more often either.
-                delay = max(delay, interval)
+                delay = max(backoff_delay(hard, failures), interval)
             self._next_attempt[record.id] = self._clock() + delay
 
     def _defer(self, record: Record, seconds: float) -> None:

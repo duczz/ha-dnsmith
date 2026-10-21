@@ -2,6 +2,20 @@
 
 Alle nennenswerten Änderungen an diesem Projekt werden hier festgehalten.
 
+## [0.1.2] - 2026-10-21
+
+### Geändert
+- **Wiederholung nach Fehlern:** Bisher verdoppelte sich die Wartezeit nach
+  jedem Fehlschlag bis auf sechs Stunden, gleich welcher Art. Fiel ein
+  Anbieter nachts aus, blieb der Eintrag auch nach dessen Rückkehr bis zu
+  sechs Stunden veraltet. Jetzt gilt: bei einer Störung (keine Antwort,
+  Serverfehler, nicht lesbare Antwort) höchstens 30 Minuten; bei abgelehnten
+  Zugangsdaten oder Angaben drei Versuche (sofort, nach 5, nach 10 Minuten),
+  danach 30 und 60 Minuten, zuletzt alle zwei Stunden. Ein Wechsel der
+  Fehlerart beginnt die Zählung neu.
+- **Die Übersicht zeigt bei einem fehlgeschlagenen Eintrag, wann der nächste
+  Versuch ansteht.**
+
 ## [0.1.1] - 2026-10-07
 
 ### Behoben
