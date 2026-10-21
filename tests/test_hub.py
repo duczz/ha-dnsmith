@@ -2404,6 +2404,31 @@ class TestBackoffByKindOfFailure(HubTestCase):
         self.store.config.settings.poll_interval = "1h"
         self.assertEqual(self.strike("dnserr"), 3600)
 
+    def test_every_failed_attempt_is_written_to_the_log(self):
+        with self.assertLogs("dnsmith.hub", level="WARNING") as logged:
+            self.strike("dnserr")
+            self.strike("dnserr")
+        lines = [line for line in logged.output if "failed" in line]
+        self.assertEqual(len(lines), 2)
+        for line in lines:
+            self.assertIn(self.record.fqdn, line)
+            self.assertIn("provider_response", line)
+        self.assertIn("next attempt in 5 min", lines[0])
+        self.assertIn("next attempt in 10 min", lines[1])
+
+    def test_the_log_line_says_how_long_a_ban_is_sat_out(self):
+        with self.assertLogs("dnsmith.hub", level="WARNING") as logged:
+            self.strike("abuse")
+        self.assertTrue(
+            any("banned" in line and "next attempt in 60 min" in line for line in logged.output),
+            logged.output,
+        )
+
+    def test_the_log_line_does_not_carry_the_providers_text(self):
+        with self.assertLogs("dnsmith.hub", level="WARNING") as logged:
+            self.strike("dnserr")
+        self.assertNotIn("dnserr", "\n".join(logged.output))
+
     def test_a_failed_record_says_when_it_is_tried_again(self):
         import calendar
         import time

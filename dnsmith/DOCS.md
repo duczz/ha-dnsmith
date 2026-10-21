@@ -179,7 +179,8 @@ Minuten entsprechend später. Wurden Zugangsdaten oder Angaben abgelehnt,
 gibt es drei Versuche kurz hintereinander (sofort, nach 5 und nach 10
 Minuten), danach wird nur noch alle 30 Minuten bis 2 Stunden gefragt, weil
 sich das erst durch eine Änderung am Eintrag behebt. **Aktualisieren** fragt
-sofort nach.
+sofort nach. Jeder fehlgeschlagene Versuch steht auch im Protokoll der App,
+mit Fehlercode und der Wartezeit bis zum nächsten Versuch.
 
 **Zugangsdaten korrigiert** — ein Eintrag wird nach dem Speichern sofort
 aktualisiert, sobald sich Felder oder Zugangsdaten geändert haben; eine

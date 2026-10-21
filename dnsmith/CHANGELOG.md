@@ -16,6 +16,13 @@ Alle nennenswerten Änderungen an diesem Projekt werden hier festgehalten.
 - **Die Übersicht zeigt bei einem fehlgeschlagenen Eintrag, wann der nächste
   Versuch ansteht.**
 
+### Verbessert
+- **Jeder fehlgeschlagene Versuch steht im Protokoll der App**, mit Adresse,
+  Anbieter, Fehlercode und der Wartezeit bis zum nächsten Versuch. Bisher
+  blieb ein Ausfall über Nacht dort unsichtbar; nachvollziehen ließ er sich nur
+  in der Oberfläche, solange die App lief. Der Text des Anbieters steht nicht
+  im Protokoll.
+
 ## [0.1.1] - 2026-10-07
 
 ### Behoben

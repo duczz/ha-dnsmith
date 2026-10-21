@@ -603,6 +603,17 @@ class Scheduler:
         else:
             self._schedule(record, ok=False, code=code)
 
+        # The only trace a failed update leaves outside the interface. Without
+        # it a night of failures is invisible in the app log, and why a record
+        # was or was not asked again cannot be reconstructed afterwards. The
+        # code only, never the provider's text: that may echo a credential.
+        with self._lock:
+            wait = max(self._next_attempt.get(record.id, 0.0) - self._clock(), 0.0)
+        logger.warning(
+            "update of %s (%s) failed: %s; next attempt in %d min",
+            record.fqdn, record.provider_id, code, round(wait / 60),
+        )
+
         return self._remember(
             RecordStatus(
                 record_id=record.id,
