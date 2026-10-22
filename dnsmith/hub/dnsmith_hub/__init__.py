@@ -2,7 +2,7 @@
 
 # Kept in step with `version` in dnsmith/config.yaml; tests/test_hub.py
 # fails the moment the two disagree.
-__version__ = "0.1.2"
+__version__ = "0.1.3"
 
 # DynDNS2 asks every client to identify itself by name, version and contact,
 # and No-IP answers "badagent" to clients that do not. A bare "DNSmith" says

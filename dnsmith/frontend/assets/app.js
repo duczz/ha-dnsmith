@@ -77,16 +77,6 @@ function addressCard(status) {
       box('Öffentliche IPv4', ip.ipv4, 'nicht gefunden'),
       box('Öffentliche IPv6', ip.ipv6, 'nicht gefunden'),
     ]),
-    el('div', { class: 'stat-row' }, [
-      el('div', { class: 'stat' }, [
-        el('b', { text: String(status.records_total) }),
-        el('span', { text: status.records_total === 1 ? 'Eintrag' : 'Einträge' }),
-      ]),
-      el('div', { class: `stat${status.records_failed ? ' is-bad' : ''}` }, [
-        el('b', { text: String(status.records_failed) }),
-        el('span', { text: 'fehlerhaft' }),
-      ]),
-    ]),
   ]);
 
   for (const notice of ip.notices || []) {
@@ -139,24 +129,76 @@ function nextAttemptText(iso) {
   return `nächster Versuch ${day}${time}`;
 }
 
-function errorBox(error) {
-  const box = el('div', { class: 'error-box' }, [
+// The message on its own line, what to check and the raw text folded away
+// underneath: the common case is a provider outage nobody can act on, and a
+// box with a bulleted list for that buries the one line that matters.
+function errorLine(error) {
+  const line = el('div', { class: 'error-line' }, [
     el('div', { text: error.message }),
   ]);
 
+  const folds = [];
   if (error.checks && error.checks.length) {
-    box.append(el('ul', {}, error.checks.map((check) => el('li', { text: check }))));
+    folds.push(el('details', {}, [
+      el('summary', { text: 'Was prüfen?' }),
+      el('ul', {}, error.checks.map((check) => el('li', { text: check }))),
+    ]));
   }
-
   if (error.technical || error.detail) {
-    const details = el('details', { class: 'tech' }, [
+    folds.push(el('details', {}, [
       el('summary', { text: 'Technische Details' }),
       el('pre', { text: [error.technical, error.detail].filter(Boolean).join('\n') }),
-    ]);
-    box.append(details);
+    ]));
   }
+  if (folds.length) line.append(el('div', { class: 'error-folds' }, folds));
 
-  return box;
+  return line;
+}
+
+const BADGE_CLASS = {
+  success: 'is-ok',
+  up_to_date: 'is-ok',
+  fail: 'is-bad',
+  updating: 'is-busy',
+};
+
+function statusBadge(displayState) {
+  return el('span', {
+    class: `state-badge ${BADGE_CLASS[displayState] || ''}`.trim(),
+    text: STATE_TEXT[displayState] || displayState,
+  });
+}
+
+// "Provider · IPv4 · vor 3 min · nächster Versuch 19:01": everything but the
+// status, which stands as a badge beside the name.
+function recordMeta(record, status, displayState) {
+  const lead = [record.provider_name, ipVersionLabel(record.ip_version)];
+  if (record.label && record.label !== record.fqdn) lead.unshift(record.fqdn);
+
+  const tail = [relativeTime(status.last_success || status.last_attempt)];
+  // A failed record is tried again by itself; saying when spares the user the
+  // guess whether anything is going to happen at all.
+  if (displayState === 'fail') tail.push(nextAttemptText(status.next_attempt));
+  // What the record points at is the first thing anyone checks when a
+  // name does not resolve the way they expect.
+  const addresses = [status.current_ipv4, status.current_ipv6].filter(Boolean);
+  if (addresses.length) tail.push(addresses.join(' · '));
+
+  return el('div', {
+    class: 'record-meta',
+    text: [...lead, ...tail].filter(Boolean).join(' · '),
+  });
+}
+
+function recordCount(status) {
+  if (!status.records_total) return null;
+  if (status.records_failed) {
+    return el('span', {
+      class: 'count is-bad',
+      text: `${status.records_failed} von ${status.records_total} fehlerhaft`,
+    });
+  }
+  return el('span', { class: 'count', text: String(status.records_total) });
 }
 
 function recordRow(record) {
@@ -167,30 +209,24 @@ function recordRow(record) {
   // last known state was — "unset"/"noch kein Update" reads as if nothing is
   // happening at all.
   const displayState = state.pendingUpdates.has(record.id) ? 'updating' : status.state;
-  const bits = [record.provider_name, ipVersionLabel(record.ip_version)];
 
-  const when = relativeTime(status.last_success || status.last_attempt);
-  bits.push(STATE_TEXT[displayState] || displayState);
-  if (when) bits.push(when);
-  // A failed record is tried again by itself; saying when spares the user the
-  // guess whether anything is going to happen at all.
-  const retry = displayState === 'fail' ? nextAttemptText(status.next_attempt) : null;
-  if (retry) bits.push(retry);
-  // What the record points at is the first thing anyone checks when a
-  // name does not resolve the way they expect.
-  const addresses = [status.current_ipv4, status.current_ipv6].filter(Boolean);
-  if (addresses.length) bits.push(addresses.join(' · '));
-
+  // The name is the one real button of the row; its ::after stretches over
+  // the whole row (styles.css), so the row opens the record while the other
+  // buttons and the folds stay clickable above it, and keyboard and screen
+  // reader users get an ordinary button instead of a click handler.
   const main = el('div', { class: 'record-main' }, [
-    el('div', { class: 'record-name', text: record.display_name }),
-    el('div', { class: 'record-meta', text: bits.join(' · ') }),
+    el('div', { class: 'record-name' }, [
+      el('button', {
+        class: 'record-open',
+        text: record.display_name,
+        onclick: () => openRecord(record.id),
+      }),
+      statusBadge(displayState),
+    ]),
+    recordMeta(record, status, displayState),
   ]);
 
-  if (record.label && record.label !== record.fqdn) {
-    main.querySelector('.record-meta').textContent = `${record.fqdn} · ${bits.join(' · ')}`;
-  }
-
-  if (status.error) main.append(errorBox(status.error));
+  if (status.error) main.append(errorLine(status.error));
 
   return el('div', { class: 'record' }, [
     el('span', { class: dotClass(displayState), title: STATE_TEXT[displayState] || '' }),
@@ -202,11 +238,7 @@ function recordRow(record) {
         disabled: state.busy || !record.enabled,
         onclick: () => forceUpdate(record.id),
       }),
-      el('button', {
-        class: 'btn is-small',
-        text: 'Bearbeiten',
-        onclick: () => openRecord(record.id),
-      }),
+      el('span', { class: 'chev', 'aria-hidden': 'true', text: '›' }),
     ]),
   ]);
 }
@@ -240,7 +272,10 @@ function renderDashboard() {
   node.append(addressCard(status));
 
   node.append(el('div', { class: 'section-head' }, [
-    el('h2', { text: 'Einträge' }),
+    el('div', { class: 'section-title' }, [
+      el('h2', { text: 'Einträge' }),
+      recordCount(status),
+    ]),
     el('div', { class: 'btn-row', style: 'margin:0' }, [
       status.records_total
         ? el('button', {
@@ -273,7 +308,7 @@ function renderDashboard() {
       ]),
     ]));
   } else {
-    const card = el('div', { class: 'card' });
+    const card = el('div', { class: 'card is-list' });
     for (const record of status.records) card.append(recordRow(record));
     node.append(card);
   }
@@ -880,7 +915,7 @@ async function loadSettings() {
     };
 
     const node = el('div', {}, [
-      el('div', { class: 'card' }, [
+      el('div', { class: 'card is-columns' }, [
         el('h3', { text: 'Aktualisierung' }),
         el('div', { class: 'field' }, [
           el('label', { for: 's-poll', text: 'Prüfintervall' }),
@@ -897,7 +932,7 @@ async function loadSettings() {
             'Schützt vor Sperren durch den Anbieter, wenn die IP häufig wechselt.' }),
         ]),
       ]),
-      el('div', { class: 'card' }, [
+      el('div', { class: 'card is-columns' }, [
         el('h3', { text: 'Woher die IP-Adressen kommen' }),
         el('p', { class: 'small muted', text:
           'Normalerweise ermittelt DNSmith die Adressen selbst über das Internet. '
@@ -910,7 +945,7 @@ async function loadSettings() {
       // The card below has no top margin of its own, and a button row only
       // spaces itself from what is above it.
       el('div', { class: 'btn-row', style: 'margin-bottom: var(--gap)' }, [
-        el('button', { class: 'btn is-primary', text: 'Einstellungen speichern', onclick: saveSettings }),
+        el('button', { class: 'btn is-primary is-small', text: 'Einstellungen speichern', onclick: saveSettings }),
       ]),
       el('div', { class: 'card' }, [
         el('h3', { text: 'Sicherung' }),
@@ -918,9 +953,9 @@ async function loadSettings() {
           'Der Export enthält standardmäßig keine Zugangsdaten. Eine Sicherung mit '
           + 'Zugangsdaten ist im Klartext lesbar — behandle sie wie ein Passwort.' }),
         el('div', { class: 'btn-row' }, [
-          el('a', { class: 'btn', href: api.exportUrl(false), download: 'dnsmith-backup.json',
+          el('a', { class: 'btn is-small', href: api.exportUrl(false), download: 'dnsmith-backup.json',
                     text: 'Ohne Zugangsdaten exportieren' }),
-          el('a', { class: 'btn', href: api.exportUrl(true), download: 'dnsmith-backup-full.json',
+          el('a', { class: 'btn is-small', href: api.exportUrl(true), download: 'dnsmith-backup-full.json',
                     text: 'Mit Zugangsdaten exportieren' }),
         ]),
       ]),

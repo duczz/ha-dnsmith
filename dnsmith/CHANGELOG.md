@@ -2,6 +2,49 @@
 
 Alle nennenswerten Änderungen an diesem Projekt werden hier festgehalten.
 
+## [0.1.3] - 2026-10-23
+
+### Behoben
+- **Wechselt ein Anbieter zwischen Störung und Ablehnung**, wie Dynu es bei
+  einem Ausfall tat (Zeitüberschreitung, dann „badauth", dann wieder
+  Zeitüberschreitung), begann die Wartezeit bei jedem Wechsel von vorn. Der
+  Eintrag wurde dann über einen Tag lang alle 5 Minuten angefragt. Störungen
+  und Ablehnungen werden jetzt getrennt gezählt und steigen beide weiter; erst
+  ein Erfolg, eine Änderung am Eintrag oder ein Neustart der App setzt sie
+  zurück. Ein Tippfehler nach einem Ausfall bleibt bei 5 Minuten, denn die
+  Ablehnungen fangen bei null an.
+
+- **Der Hinweis bei einer Zeitüberschreitung** riet, das Zeitlimit zu erhöhen.
+  Das lässt sich nirgends einstellen. Jetzt steht dort „Der Anbieter hat nicht
+  rechtzeitig geantwortet." ohne Handlungsempfehlung.
+
+### Verbessert
+- **Die Protokollzeile nennt, wie lange der Versuch gedauert hat**
+  („failed after 12.5 s"), außer bei einem unerwarteten Fehler der App. So
+  lässt sich ein langsam antwortender Anbieter von einem unterscheiden, der gar
+  nicht antwortet.
+- **Die Übersicht ist kompakter und der ganze Eintrag klickbar.** Ein Klick auf
+  eine beliebige Stelle des Eintrags öffnet ihn, der Knopf „Bearbeiten"
+  entfällt; ein Pfeil am Rand zeigt, dass der Eintrag anklickbar ist. Der
+  Status steht als Marke hinter dem Namen, dazu ein farbiger Punkt links; die
+  Zeile darunter nennt Anbieter, IP-Version, Zeitpunkt, bei einem
+  fehlgeschlagenen Eintrag den nächsten Versuch und die aktuellen Adressen.
+  Die Zeile wird beim Überfahren hervorgehoben. Die Fehlermeldung hat keinen
+  Kasten mehr:
+  „Was prüfen?" und „Technische Details" klappen darunter auf. Die Zahl der
+  Einträge steht als Marke hinter der Überschrift („2 von 4 fehlerhaft"), die
+  eigene Kachel dafür entfällt. **Einschränkung:** Text in der Zeile (etwa die
+  Adressen) lässt sich nicht mehr mit der Maus markieren, weil die ganze Zeile
+  klickbar ist; Strg+A und Kopieren funktionieren weiter.
+- **Formulare etwas kompakter**, damit sie zur Übersicht passen: kleinere
+  Abstände (Innenrand der Karten 16 statt 18 px, wie bei Home Assistants
+  eigenen Karten) und niedrigere Eingabefelder. Die Knöpfe „Einstellungen
+  speichern" und „Mit/Ohne Zugangsdaten exportieren" haben jetzt die Größe der
+  Knöpfe in der Übersicht, die Export-Knöpfe sind nicht mehr unterstrichen. Auf
+  breiten Bildschirmen stehen die Felder der Einstellungen in zwei Spalten. Die
+  Seite soll beim Wechsel zwischen Übersicht und Einstellungen nicht mehr
+  seitlich springen (Platz für die Bildlaufleiste bleibt reserviert).
+
 ## [0.1.2] - 2026-10-21
 
 ### Geändert

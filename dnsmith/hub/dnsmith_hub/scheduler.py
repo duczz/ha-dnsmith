@@ -120,9 +120,12 @@ class Scheduler:
         self._lock = threading.Lock()
         self._statuses: dict[str, RecordStatus] = {}
         self._next_attempt: dict[str, float] = {}
-        # (hard?, failures in a row) per record. A change of kind starts the
-        # count again: six timeouts do not make a refused password slow.
-        self._backoff: dict[str, tuple[bool, int]] = {}
+        # (transient, hard) failures since the last success, per record. Two
+        # counts that never touch each other: six timeouts do not make a
+        # refused password slow, and a provider that alternates between
+        # timing out and refusing (as one in an outage has) still climbs both
+        # ladders instead of starting over at five minutes every time.
+        self._backoff: dict[str, tuple[int, int]] = {}
         self._last_write: dict[str, float] = {}
         self._banned_until: dict[str, float] = {}
         # One lock per record, so the same record is never updated twice at
@@ -364,10 +367,12 @@ class Scheduler:
                 )
             )
 
+        started = self._clock()
         try:
             outcome = self._perform(record, ipv4, ipv6)
         except AdapterError as error:
-            return self._failed(record, previous, error.code, error.as_dict())
+            return self._failed(record, previous, error.code, error.as_dict(),
+                                took=self._clock() - started)
         except ssrf.URLRejected as rejected:
             # The guard said no — an address inside the home network, a name
             # that does not resolve. That is a finding about the record's
@@ -375,12 +380,14 @@ class Scheduler:
             # not the "unexpected error" with a traceback it used to become.
             code = "dns" if rejected.code == "host_unresolvable" else "config"
             return self._failed(record, previous, code,
-                                {"code": code, "summary": rejected.message})
+                                {"code": code, "summary": rejected.message},
+                                took=self._clock() - started)
 
         if not outcome.ok:
             return self._failed(
                 record, previous, outcome.code,
                 {"code": outcome.code, "summary": outcome.message, "detail": outcome.raw or None},
+                took=self._clock() - started,
             )
 
         self._schedule(record, ok=True)
@@ -591,7 +598,7 @@ class Scheduler:
             return 0.0
         return max(until - self._clock(), 0.0)
 
-    def _failed(self, record, previous, code, error) -> RecordStatus:
+    def _failed(self, record, previous, code, error, took: float | None = None) -> RecordStatus:
         banned_until = None
         if code == "banned":
             # A ban is not a retry problem. Sit out an hour rather than
@@ -607,11 +614,14 @@ class Scheduler:
         # it a night of failures is invisible in the app log, and why a record
         # was or was not asked again cannot be reconstructed afterwards. The
         # code only, never the provider's text: that may echo a credential.
+        # How long the attempt took is there to tell a provider that answers
+        # slowly from one that does not answer at all: a timeout alone cannot.
         with self._lock:
             wait = max(self._next_attempt.get(record.id, 0.0) - self._clock(), 0.0)
+        after = "" if took is None else f" after {took:.1f} s"
         logger.warning(
-            "update of %s (%s) failed: %s; next attempt in %d min",
-            record.fqdn, record.provider_id, code, round(wait / 60),
+            "update of %s (%s) failed%s: %s; next attempt in %d min",
+            record.fqdn, record.provider_id, after, code, round(wait / 60),
         )
 
         return self._remember(
@@ -657,9 +667,14 @@ class Scheduler:
                 delay = interval
             else:
                 hard = code in HARD_CODES
-                was_hard, failures = self._backoff.get(record.id, (hard, 0))
-                failures = min((failures if was_hard == hard else 0) + 1, MAX_FAILURES)
-                self._backoff[record.id] = (hard, failures)
+                transient, refused = self._backoff.get(record.id, (0, 0))
+                if hard:
+                    refused = min(refused + 1, MAX_FAILURES)
+                    failures = refused
+                else:
+                    transient = min(transient + 1, MAX_FAILURES)
+                    failures = transient
+                self._backoff[record.id] = (transient, refused)
                 # Never back off to less often than the normal interval would
                 # have been, and never more often either.
                 delay = max(backoff_delay(hard, failures), interval)

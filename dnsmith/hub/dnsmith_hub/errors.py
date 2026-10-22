@@ -5,7 +5,9 @@ exists so the wording can change without touching the code that raises it.
 
 The rule for every message here: say what went wrong, then what to check. A
 message that only restates the failure ("Authentifizierung fehlgeschlagen")
-leaves the user exactly where they were.
+leaves the user exactly where they were. The one exception is a failure the
+user cannot do anything about (a slow provider): then the list of checks is
+empty, rather than filled with advice that does not apply.
 """
 
 from __future__ import annotations
@@ -76,10 +78,14 @@ MESSAGES: dict[str, tuple[str, list[str]]] = {
         "Der Anbieter war nicht erreichbar.",
         ["Besteht eine Internetverbindung?", "Ist der Dienst des Anbieters gerade gestört?"],
     ),
-    "timeout": (
-        "Der Versuch hat zu lange gedauert.",
-        ["Bei häufigem Auftreten das Zeitlimit erhöhen."],
-    ),
+    # Nothing to check: the time limit is not a setting, and a slow provider
+    # is not the user's to fix. The wording stays neutral because the code
+    # covers three cases: a read that took too long and a connection that never
+    # came up (native.py), and a change the provider accepted but did not finish
+    # within the limit (hetzner.py; its own text, which says the change may
+    # have gone through, is under "Technische Details"). The retry is announced
+    # in the overview.
+    "timeout": ("Der Anbieter hat nicht rechtzeitig geantwortet.", []),
     "redirect_refused": (
         "Der Anbieter hat auf eine andere Adresse weitergeleitet.",
         ["Die endgültige Update-URL direkt eintragen."],

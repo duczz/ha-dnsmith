@@ -47,6 +47,11 @@
 
 * { box-sizing: border-box; }
 
+/* Keep the page where it is when a view is tall enough for a scrollbar and
+   the one before was not (overview to settings): without this the content
+   shifts sideways by the width of the bar. */
+html { scrollbar-gutter: stable; }
+
 body {
   margin: 0;
   background: var(--bg);
@@ -111,8 +116,28 @@ body {
   border: 1px solid var(--divider);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
-  padding: 18px;
+  /* 16px is what Home Assistant's own ha-card uses for its content. */
+  padding: 16px;
   margin-bottom: var(--gap);
+}
+
+/* Each record row carries its own vertical padding, so the card needs little. */
+.card.is-list { padding: 8px 16px; }
+
+/* Short fields side by side (settings); the title and the intro text span
+   both columns. Below 600px everything stacks again. */
+.card.is-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 20px;
+  align-items: start;
+}
+
+.card.is-columns > h3,
+.card.is-columns > p { grid-column: 1 / -1; }
+
+@media (max-width: 600px) {
+  .card.is-columns { display: block; }
 }
 
 .section-head {
@@ -126,7 +151,25 @@ body {
 
 .section-head h2 { margin: 0; font-size: 15px; font-weight: 600; letter-spacing: .01em; }
 
+.section-title { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+/* The number of records after the heading; red when some of them failed. */
+.count {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 1px 9px;
+  border-radius: 999px;
+  color: var(--fg-muted);
+  background: color-mix(in srgb, var(--fg-muted) 18%, transparent);
+}
+
+.count.is-bad {
+  color: var(--bad);
+  background: color-mix(in srgb, var(--bad) 16%, transparent);
+}
+
 h3 { margin: 0 0 4px; font-size: 15px; font-weight: 600; }
+.card > h3 { margin-bottom: 10px; }
 
 .muted { color: var(--fg-muted); }
 .small { font-size: 13px; }
@@ -145,11 +188,6 @@ h3 { margin: 0 0 4px; font-size: 15px; font-weight: 600; }
 .ip-value { font-size: 20px; font-weight: 600; word-break: break-all; margin-top: 2px; }
 .ip-value.is-missing { color: var(--fg-muted); font-weight: 400; font-size: 16px; }
 
-.stat-row { display: flex; gap: 22px; flex-wrap: wrap; margin-top: 14px; }
-.stat b { font-size: 19px; font-weight: 600; display: block; }
-.stat span { font-size: 12px; color: var(--fg-muted); }
-.stat.is-bad b { color: var(--bad); }
-
 /* --- notices ----------------------------------------------------------- */
 
 .notice {
@@ -166,15 +204,31 @@ h3 { margin: 0 0 4px; font-size: 15px; font-weight: 600; }
 /* --- records ----------------------------------------------------------- */
 
 .record {
+  position: relative;
   display: flex;
   align-items: flex-start;
   gap: 13px;
-  padding: 14px 0;
-  border-top: 1px solid var(--divider);
+  /* Wider than the text column, so the hover background has room to breathe
+     without moving the text. */
+  margin: 0 -8px;
+  padding: 8px;
+  border-radius: 10px;
+  transition: background .12s;
 }
 
-.record:first-child { border-top: 0; }
+.record:hover { background: var(--surface-2); }
 
+.record + .record::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 8px;
+  right: 8px;
+  height: 1px;
+  background: var(--divider);
+}
+
+/* Same colours as the state badge beside the name. */
 .dot {
   width: 10px;
   height: 10px;
@@ -191,23 +245,105 @@ h3 { margin: 0 0 4px; font-size: 15px; font-weight: 600; }
 .record-main { flex: 1 1 auto; min-width: 0; }
 .record-name { font-weight: 600; word-break: break-all; }
 .record-meta { font-size: 13px; color: var(--fg-muted); margin-top: 1px; }
-.record-actions { display: flex; gap: 6px; flex: 0 0 auto; }
 
-.error-box {
-  margin-top: 9px;
-  border-left: 3px solid var(--bad);
-  background: var(--surface-2);
-  border-radius: var(--radius-sm);
-  padding: 10px 13px;
-  font-size: 14px;
+/* The name is a button whose ::after covers the whole row: clicking anywhere
+   on the row opens the record. Whatever has to stay clickable on top of it
+   (the update button, the folds) sits above it by z-index. */
+.record-open {
+  font: inherit;
+  font-weight: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  text-align: left;
+  word-break: inherit;
+  cursor: pointer;
 }
 
-.error-box ul { margin: 7px 0 0; padding-left: 19px; }
-.error-box li { margin: 3px 0; }
+.record-open::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 10px;
+}
 
-details.tech { margin-top: 8px; }
-details.tech summary { cursor: pointer; font-size: 13px; color: var(--fg-muted); }
-details.tech pre {
+.record-open:focus-visible { outline: none; }
+.record-open:focus-visible::after { outline: 2px solid var(--accent); }
+
+.record-actions {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  /* Lets a click on the arrow fall through to the row. */
+  pointer-events: none;
+}
+
+.record-actions .btn { pointer-events: auto; }
+
+.chev {
+  margin-left: auto;
+  padding: 0 2px 2px 6px;
+  font-size: 22px;
+  line-height: 1;
+  color: var(--fg-muted);
+  transition: transform .12s, color .12s;
+}
+
+.record:hover .chev { transform: translateX(2px); color: var(--fg); }
+
+.state-badge {
+  display: inline-block;
+  margin-left: 10px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  vertical-align: 1px;
+  color: var(--fg-muted);
+  background: color-mix(in srgb, var(--fg-muted) 18%, transparent);
+}
+
+.state-badge.is-ok { color: var(--ok); background: color-mix(in srgb, var(--ok) 16%, transparent); }
+.state-badge.is-bad { color: var(--bad); background: color-mix(in srgb, var(--bad) 16%, transparent); }
+.state-badge.is-busy { color: var(--warn); background: color-mix(in srgb, var(--warn) 16%, transparent); }
+
+.error-line { margin-top: 5px; font-size: 14px; }
+
+.error-folds { display: flex; flex-wrap: wrap; gap: 3px 18px; margin-top: 3px; }
+
+.error-folds details { position: relative; z-index: 1; }
+.error-folds details[open] { flex-basis: 100%; }
+
+.error-folds summary {
+  display: inline-block;
+  cursor: pointer;
+  list-style: none;
+  font-size: 13px;
+  color: var(--fg-muted);
+}
+
+.error-folds summary::-webkit-details-marker { display: none; }
+
+.error-folds summary::before {
+  content: "\25B8";
+  display: inline-block;
+  width: 16px;
+  font-size: 15px;
+  vertical-align: -1px;
+  transition: transform .12s;
+}
+
+.error-folds details[open] > summary::before { transform: rotate(90deg); }
+.error-folds summary:hover { color: var(--fg); }
+
+.error-folds ul { margin: 7px 0 0; padding-left: 19px; }
+.error-folds li { margin: 3px 0; }
+
+.error-folds pre {
   margin: 7px 0 0;
   padding: 9px 11px;
   background: var(--bg);
@@ -235,14 +371,16 @@ details.tech pre {
 .btn.is-primary:hover:not(:disabled) { filter: brightness(1.08); }
 .btn.is-danger { color: var(--bad); border-color: var(--bad); background: none; }
 .btn.is-small { padding: 5px 10px; font-size: 13px; }
+/* A download link styled as a button (the backup export). */
+a.btn { text-decoration: none; }
 
 .btn-row { display: flex; gap: 9px; flex-wrap: wrap; margin-top: 20px; }
 
 /* --- forms ------------------------------------------------------------- */
 
-.field { margin-bottom: 17px; }
+.field { margin-bottom: 13px; }
 
-.field label { display: block; font-weight: 600; font-size: 14px; margin-bottom: 5px; }
+.field label { display: block; font-weight: 600; font-size: 14px; margin-bottom: 4px; }
 .field .req { color: var(--bad); margin-left: 2px; }
 
 .field input[type=text],
@@ -254,7 +392,7 @@ details.tech pre {
 .field textarea {
   width: 100%;
   font: inherit;
-  padding: 9px 11px;
+  padding: 7px 11px;
   border: 1px solid var(--divider);
   border-radius: var(--radius-sm);
   background: var(--bg);
@@ -488,6 +626,8 @@ details.tech pre {
 
 @media (max-width: 560px) {
   .record { flex-wrap: wrap; }
+  /* Beside the dot, not under it: the dot and the gap take 23px. */
+  .record-main { flex: 1 1 calc(100% - 23px); }
   .record-actions { width: 100%; }
   .provider-grid { grid-template-columns: 1fr; }
 }
@@ -512,7 +652,17 @@ details.tech pre {
 .field-group {
   border-left: 2px solid var(--divider);
   padding-left: var(--gap);
-  margin: var(--gap) 0;
+  margin: 0;
+}
+
+/* Space above the follow-up fields instead of below every field: which one is
+   last depends on the mode (the others are hidden), and the card's own padding
+   is the space below the group. */
+.field-group > .field { margin: 13px 0 0; }
+.field-group > .field:first-child { margin-top: 0; }
+
+@media (max-width: 600px) {
+  .field-group + .field-group { margin-top: var(--gap); }
 }
 
 /* The one card that must not be mistaken for an ordinary one: the stored

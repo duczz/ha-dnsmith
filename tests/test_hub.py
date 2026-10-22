@@ -1957,6 +1957,18 @@ class TestErrorExplanations(unittest.TestCase):
         self.assertTrue(explained["checks"], "an explanation with no next step is useless")
         self.assertEqual(explained["technical"], "bad authentication")
 
+    def test_a_timeout_offers_no_remedy(self):
+        """The time limit is no setting, so it must not be offered as the fix.
+
+        The old text told the user to raise it, which cannot be done. With no
+        checks the overview shows no "Was prüfen?" fold for it.
+        """
+        explained = explain({"code": "timeout", "summary": "The read operation timed out"})
+
+        self.assertEqual(explained["message"], "Der Anbieter hat nicht rechtzeitig geantwortet.")
+        self.assertEqual(explained["checks"], [])
+        self.assertEqual(explained["technical"], "The read operation timed out")
+
     def test_an_unknown_code_still_explains_something(self):
         explained = explain({"code": "something_new"})
         self.assertEqual(explained["code"], "something_new")
@@ -2376,10 +2388,21 @@ class TestBackoffByKindOfFailure(HubTestCase):
             [300, 600, 1800, 3600, 7200, 7200, 7200, 7200],
         )
 
-    def test_a_change_of_kind_starts_the_count_again(self):
+    def test_the_two_kinds_are_counted_apart(self):
         self.waits("dnserr", 5)
         self.assertEqual(self.strike("badauth"), 300, "five timeouts do not make a refusal slow")
-        self.assertEqual(self.strike("dnserr"), 300, "and one refusal does not make an outage slow")
+        self.assertEqual(self.strike("dnserr"), 1800, "and one refusal does not make the outage forgotten")
+
+    def test_a_provider_that_alternates_still_climbs_both_ladders(self):
+        """Dynu in an outage answered a timeout, then "badauth", then a timeout.
+
+        With one shared count every switch started it again, and the record
+        was asked every five minutes for over a day.
+        """
+        waits = [self.strike("dnserr" if n % 2 == 0 else "badauth") for n in range(10)]
+        self.assertEqual(
+            waits, [300, 300, 600, 600, 1200, 1800, 1800, 3600, 1800, 7200],
+        )
 
     def test_a_success_starts_the_count_again(self):
         self.waits("badauth", 4)
@@ -2395,9 +2418,9 @@ class TestBackoffByKindOfFailure(HubTestCase):
         a thousand real failures would prove the same thing slowly.
         """
         record_id = self.record.id
-        self.scheduler._backoff[record_id] = (False, 5000)  # noqa: SLF001
+        self.scheduler._backoff[record_id] = (5000, 0)  # noqa: SLF001
         self.assertEqual(self.strike("dnserr"), 1800)
-        self.scheduler._backoff[record_id] = (True, 5000)  # noqa: SLF001
+        self.scheduler._backoff[record_id] = (0, 5000)  # noqa: SLF001
         self.assertEqual(self.strike("badauth"), 7200)
 
     def test_the_poll_interval_is_still_a_floor(self):
@@ -2415,6 +2438,19 @@ class TestBackoffByKindOfFailure(HubTestCase):
             self.assertIn("provider_response", line)
         self.assertIn("next attempt in 5 min", lines[0])
         self.assertIn("next attempt in 10 min", lines[1])
+
+    def test_the_log_line_says_how_long_the_attempt_took(self):
+        def slow_then_fail(url, **kwargs):
+            self.now[0] += 12.5
+            raise AdapterError("timeout", "too slow")
+
+        self.caller.call = slow_then_fail
+        with self.assertLogs("dnsmith.hub", level="WARNING") as logged:
+            self.attempt()
+        self.assertTrue(
+            any("failed after 12.5 s: timeout" in line for line in logged.output),
+            logged.output,
+        )
 
     def test_the_log_line_says_how_long_a_ban_is_sat_out(self):
         with self.assertLogs("dnsmith.hub", level="WARNING") as logged:
