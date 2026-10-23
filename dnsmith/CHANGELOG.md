@@ -41,9 +41,16 @@ Alle nennenswerten Änderungen an diesem Projekt werden hier festgehalten.
   eigenen Karten) und niedrigere Eingabefelder. Die Knöpfe „Einstellungen
   speichern" und „Mit/Ohne Zugangsdaten exportieren" haben jetzt die Größe der
   Knöpfe in der Übersicht, die Export-Knöpfe sind nicht mehr unterstrichen. Auf
-  breiten Bildschirmen stehen die Felder der Einstellungen in zwei Spalten. Die
-  Seite soll beim Wechsel zwischen Übersicht und Einstellungen nicht mehr
-  seitlich springen (Platz für die Bildlaufleiste bleibt reserviert).
+  breiten Bildschirmen stehen die Felder der Einstellungen in zwei Spalten, im
+  Formular eines Eintrags die Karten „Adresse" und „Zugangsdaten" (die Auswahl
+  des Anmeldeverfahrens und Kontrollkästchen mit Hilfetext nehmen die ganze
+  Breite). Die Seite soll beim Wechsel zwischen Übersicht und Einstellungen
+  nicht mehr seitlich springen (Platz für die Bildlaufleiste bleibt
+  reserviert).
+- **Ein gespeichertes Passwort oder ein gespeicherter Schlüssel** zeigt im Feld
+  nur noch „Gespeichert — leer lassen, um es zu behalten". Die zusätzliche Zeile
+  „•••••••• gespeichert" darunter entfällt, sie sagte dasselbe und blieb auch
+  stehen, wenn man einen neuen Wert eintippte.
 
 ## [0.1.2] - 2026-10-21
 

@@ -575,7 +575,7 @@ function renderForm() {
   const enabled = el('input', { type: 'checkbox', id: 'f-enabled' });
   enabled.checked = record ? record.enabled !== false : true;
 
-  const identity = el('div', { class: 'card' }, [
+  const identity = el('div', { class: 'card is-columns' }, [
     el('h3', { text: 'Adresse' }),
     el('p', { class: 'small muted', text: editing
       ? 'Anbieter, Domain und IP-Version legen die Identität des Eintrags fest und '

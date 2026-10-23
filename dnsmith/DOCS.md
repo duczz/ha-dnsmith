@@ -81,7 +81,7 @@ wenn es die Situation erkennt.
 - liegen getrennt von der Konfiguration in `/config/dnsmith/secrets.json`
   mit Rechten 0600,
 - werden von der Oberfläche nie zurückgegeben — ein gespeichertes Feld zeigt
-  „gespeichert“, nicht den Wert,
+  „Gespeichert — leer lassen, um es zu behalten“, nicht den Wert,
 - erscheinen in keinem Log; ein Filter entfernt sie auch aus Fehlermeldungen
   und Stacktraces,
 - sind im Export standardmäßig **nicht** enthalten. Ein Export mit

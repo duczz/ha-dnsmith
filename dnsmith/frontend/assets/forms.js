@@ -105,7 +105,7 @@ export function monogram(provider) {
  * default on an edit.
  */
 export function buildForm(form, { existing = null, problems = {} } = {}) {
-  const container = el('div');
+  const container = el('div', { class: 'form-grid' });
   const inputs = new Map();
   const secretIds = new Set(form.fields.filter((field) => field.secret).map((f) => f.id));
 
@@ -140,7 +140,7 @@ export function buildForm(form, { existing = null, problems = {} } = {}) {
   // --- authentication chooser -------------------------------------------
   let variantBox = null;
   if (form.auth) {
-    variantBox = el('div', { class: 'field' }, [
+    variantBox = el('div', { class: 'field is-wide' }, [
       el('label', { text: 'Anmeldeverfahren' }),
     ]);
 
@@ -211,6 +211,7 @@ export function buildForm(form, { existing = null, problems = {} } = {}) {
           id: `f-${field.id}`,
           placeholder: isSet ? 'Gespeichert — leer lassen, um es zu behalten' : '',
         });
+        wrapper.classList.add('is-wide');
       } else {
         input = el('input', {
           id: `f-${field.id}`,
@@ -229,13 +230,6 @@ export function buildForm(form, { existing = null, problems = {} } = {}) {
       }
 
       wrapper.append(input);
-
-      if (field.secret && isSet) {
-        wrapper.append(el('div', { class: 'secret-set' }, [
-          el('span', { text: '••••••••' }),
-          el('span', { text: 'gespeichert' }),
-        ]));
-      }
 
       if (field.help) wrapper.append(el('div', { class: 'help', text: field.help }));
     }
