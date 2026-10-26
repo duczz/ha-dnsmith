@@ -184,9 +184,12 @@ h3 { margin: 0 0 4px; font-size: 15px; font-weight: 600; }
   gap: var(--gap);
 }
 
-.ip-box { min-width: 0; }
+/* A full IPv6 address is 39 monospace characters, about 23.4em wide. The
+   value shrinks with its box so it stays on one line on a phone; 20px from a
+   box width of ~480px up. break-all is the fallback for very narrow screens. */
+.ip-box { min-width: 0; container-type: inline-size; }
 .ip-label { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--fg-muted); }
-.ip-value { font-size: 20px; font-weight: 600; word-break: break-all; margin-top: 2px; }
+.ip-value { font-size: min(20px, 4.2cqi); font-weight: 600; word-break: break-all; margin-top: 2px; }
 .ip-value.is-missing { color: var(--fg-muted); font-weight: 400; font-size: 16px; }
 
 /* --- notices ----------------------------------------------------------- */

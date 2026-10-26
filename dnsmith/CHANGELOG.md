@@ -2,6 +2,15 @@
 
 Alle nennenswerten Änderungen an diesem Projekt werden hier festgehalten.
 
+## [Unveröffentlicht]
+
+### Verbessert
+- **Die öffentlichen Adressen oben in der Übersicht** brachen auf dem Handy um:
+  eine volle IPv6-Adresse passte bei 20 px nicht in eine Zeile. Die Schrift
+  wird jetzt kleiner, wenn der Platz nicht reicht (auf einem 375 px breiten
+  Bildschirm etwa 13 px, auf breiten Bildschirmen bis 20 px), und die Adresse
+  bleibt einzeilig.
+
 ## [0.1.3] - 2026-10-23
 
 ### Behoben
