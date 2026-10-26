@@ -2,7 +2,7 @@
 
 Alle nennenswerten Änderungen an diesem Projekt werden hier festgehalten.
 
-## [Unveröffentlicht]
+## [0.1.4] - 2026-10-26
 
 ### Verbessert
 - **Die öffentlichen Adressen oben in der Übersicht** brachen auf dem Handy um:
