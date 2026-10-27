@@ -4,13 +4,28 @@ name: Release-Docker
 # unterstützten Architekturen und lädt es auf ghcr.io hoch. `image:` in
 # dnsmith/config.yaml zeigt darauf; der Supervisor zieht es, statt lokal zu
 # bauen. Das Update-Banner hängt nicht daran, sondern an `version` in
-# config.yaml. Deshalb: das Release direkt nach dem Versionssprung
-# veröffentlichen, und eine veröffentlichte Version nie neu veröffentlichen -
-# das überschreibt das Image-Tag, installierte Geräte merken es nicht.
+# config.yaml auf main. Deshalb hebt niemand die Version von Hand an: der Tag
+# gibt sie vor, und erst wenn beide Images auf ghcr.io liegen, schreibt der
+# letzte Job sie auf main (tools/set_version.py). Eine veröffentlichte
+# Version nie neu veröffentlichen - das überschreibt das Image-Tag,
+# installierte Geräte merken es nicht.
+#
+# Ein Pre-Release (v0.1.5, ohne Endung) baut nur das Image 0.1.5, ohne
+# "latest" und ohne main anzufassen: Home Assistant bietet nichts an. Wird
+# es auf GitHub zum vollen Release umgestellt, kommt "released"; dann wird
+# nichts gebaut, nur "latest" nachgezogen und die Version auf main gesetzt.
 
 on:
   release:
-    types: [published]
+    types: [published, released]
+
+# "released" kommt laut GitHub auch bei einem direkt veröffentlichten Release
+# ("A release was published, or a pre-release was changed to a release"),
+# also zwei Läufe für ein Release. Sie laufen nacheinander; der zweite
+# findet main schon auf der Version oder die Images noch nicht vor.
+concurrency:
+  group: release-docker-${{ github.ref }}
+  cancel-in-progress: false
 
 env:
   REGISTRY: ghcr.io
@@ -23,6 +38,7 @@ permissions:
 jobs:
   build-and-push:
     name: ${{ matrix.arch }} bauen und pushen
+    if: ${{ github.event.action == 'published' }}
     runs-on: ubuntu-latest
     strategy:
       matrix:
@@ -37,14 +53,12 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Version in config.yaml muss zum Tag passen
+      - name: Version aus dem Tag übernehmen
+        env:
+          PRERELEASE: ${{ github.event.release.prerelease && '--prerelease' || '' }}
         run: |
-          tag="${GITHUB_REF_NAME#v}"
-          cfg="$(grep -m1 '^version:' dnsmith/config.yaml | awk '{gsub(/["[:space:]]/, "", $2); print $2}')"
-          if [ "$cfg" != "$tag" ]; then
-            echo "::error::Tag ${GITHUB_REF_NAME} passt nicht zu version \"${cfg}\" in dnsmith/config.yaml. Erst Version anheben und auf main pushen, dann das Release neu anlegen."
-            exit 1
-          fi
+          python3 tools/set_version.py "${GITHUB_REF_NAME}" --check-newer $PRERELEASE
+          python3 tools/set_version.py "${GITHUB_REF_NAME}" $PRERELEASE
 
       - name: QEMU einrichten (für Cross-Kompilierung)
         uses: docker/setup-qemu-action@v4
@@ -59,12 +73,34 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Versions-Tag ermitteln
-        id: version
+      # "Re-run all jobs" würde ein veröffentlichtes Image überschreiben.
+      # Nach einem Fehlschlag nur "Re-run failed jobs": die Architektur, die
+      # schon durchlief, wird dann nicht erneut gebaut. Gebaut wird nur bei
+      # einem eindeutigen 404; jede andere Antwort bricht ab, statt im
+      # Zweifel zu überschreiben.
+      - name: Image dieser Version darf es noch nicht geben
         run: |
-          # Entfernt das führende "v" aus dem Release-Tag (v0.1.0 → 0.1.0)
-          echo "tag=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          repo="${IMAGE_NAME}/${{ matrix.arch }}"
+          version="${GITHUB_REF_NAME#v}"
+          token="$(curl -fsS "https://${REGISTRY}/token?scope=repository:${repo}:pull" \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')"
+          code="$(curl -s -o /dev/null -w '%{http_code}' \
+            -H "Authorization: Bearer ${token}" \
+            -H "Accept: application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json" \
+            "https://${REGISTRY}/v2/${repo}/manifests/${version}")"
+          case "$code" in
+            404) echo "${repo}:${version} gibt es noch nicht" ;;
+            200) echo "::error::${repo}:${version} gibt es schon. Eine veröffentlichte Version nie neu bauen; nach einem Fehlschlag nur \"Re-run failed jobs\"."; exit 1 ;;
+            *)   echo "::error::ghcr.io antwortete ${code} für ${repo}:${version}; ohne eindeutiges 404 wird nicht gebaut."; exit 1 ;;
+          esac
 
+      - name: Version ermitteln
+        id: version
+        # Entfernt das führende "v" aus dem Release-Tag (v0.1.0 → 0.1.0)
+        run: echo "tag=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      # Nur das Versions-Tag. "latest" setzt erst version-auf-main, also nie
+      # für ein Pre-Release.
       - name: Image bauen und pushen
         uses: docker/build-push-action@v7
         with:
@@ -74,9 +110,7 @@ jobs:
           push: true
           build-args: |
             BUILD_FROM=${{ matrix.build_from }}
-          tags: |
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/${{ matrix.arch }}:${{ steps.version.outputs.tag }}
-            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/${{ matrix.arch }}:latest
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}/${{ matrix.arch }}:${{ steps.version.outputs.tag }}
           labels: |
             org.opencontainers.image.title=DNSmith
             org.opencontainers.image.description=Der DDNS-Hub für Home Assistant
@@ -86,3 +120,97 @@ jobs:
             io.hass.type=addon
             io.hass.name=DNSmith
             io.hass.arch=${{ matrix.arch }}
+
+  # Erst hier sieht der Supervisor die neue Version. Läuft nach dem Bau eines
+  # vollen Releases und, ohne Bau, nach dem Umstellen eines Pre-Releases.
+  version-auf-main:
+    name: Version auf main setzen
+    needs: build-and-push
+    # build-and-push ist bei "released" übersprungen; das darf diesen Job
+    # nicht mitreißen, ein Fehlschlag dort schon.
+    if: ${{ !cancelled() && !failure() && !github.event.release.prerelease }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+
+      # Ohne beide Images keine Version auf main, sonst zeigt Home Assistant
+      # ein Update, das sich nicht installieren lässt.
+      - name: Beide Images müssen auf ghcr.io liegen
+        id: images
+        env:
+          ACTION: ${{ github.event.action }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          for arch in amd64 aarch64; do
+            repo="${IMAGE_NAME}/${arch}"
+            token="$(curl -fsS "https://${REGISTRY}/token?scope=repository:${repo}:pull" \
+              | python3 -c 'import json,sys; print(json.load(sys.stdin)["token"])')"
+            code="$(curl -s -o /dev/null -w '%{http_code}' \
+              -H "Authorization: Bearer ${token}" \
+              -H "Accept: application/vnd.oci.image.index.v1+json, application/vnd.oci.image.manifest.v1+json, application/vnd.docker.distribution.manifest.v2+json" \
+              "https://${REGISTRY}/v2/${repo}/manifests/${version}")"
+            case "${code}/${ACTION}" in
+              200/*) echo "${repo}:${version} liegt" ;;
+              404/released)
+                echo "::warning::${repo}:${version} liegt noch nicht auf ghcr.io, die Version kommt aus diesem Lauf nicht auf main. Direkt veröffentlicht: das übernimmt der Lauf zu \"published\". Pre-Release umgestellt: dessen Bau ist fehlgeschlagen - dort \"Re-run failed jobs\", danach diesen Lauf erneut starten."
+                echo "ready=false" >> "$GITHUB_OUTPUT"
+                exit 0 ;;
+              *) echo "::error::ghcr.io antwortete ${code} für ${repo}:${version}"; exit 1 ;;
+            esac
+          done
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+
+      # main darf seit dem Tag weitergelaufen sein (Doku, Tests, Code für das
+      # nächste Release: der Supervisor zieht ohnehin das Image), nur nicht im
+      # CHANGELOG und in config.yaml. Den CHANGELOG zeigt HA von main, und
+      # "Unveröffentlicht" bekäme sonst Einträge datiert, die nicht im Image
+      # stecken. config.yaml liest der Supervisor ganz von main: eine neue
+      # Architektur oder Option ginge sonst mit dem alten Image live.
+      # --check-newer verhindert, dass ein spät umgestelltes Pre-Release main
+      # zurückstuft.
+      - name: Version setzen und pushen
+        if: ${{ steps.images.outputs.ready == 'true' }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          git fetch --depth=1 origin +refs/heads/main:refs/remotes/origin/main
+          if git show origin/main:dnsmith/config.yaml | grep -qx "version: \"${version}\""; then
+            echo "main steht schon auf ${version}"
+            exit 0
+          fi
+          if ! git diff --quiet HEAD origin/main -- dnsmith/CHANGELOG.md dnsmith/config.yaml; then
+            echo "::error::CHANGELOG oder config.yaml auf main haben sich seit dem Tag ${GITHUB_REF_NAME} geändert. Die Version kommt nicht automatisch auf main: prüfen, was dazukam, dann von Hand python3 tools/set_version.py ${version}, committen, pushen."
+            exit 1
+          fi
+          git checkout -q origin/main
+          python3 tools/set_version.py "${GITHUB_REF_NAME}" --check-newer
+          python3 tools/set_version.py "${GITHUB_REF_NAME}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "DNSmith ${version}: Version gesetzt"
+          git push origin HEAD:main
+
+      - name: Bei ghcr.io anmelden
+        if: ${{ steps.images.outputs.ready == 'true' }}
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker Buildx einrichten
+        if: ${{ steps.images.outputs.ready == 'true' }}
+        uses: docker/setup-buildx-action@v4
+
+      # Zeigt "latest" auf das fertige Image, ohne neu zu bauen. Erst nach
+      # main, damit "latest" nie auf einer Version steht, die HA nicht anbietet.
+      - name: latest nachziehen
+        if: ${{ steps.images.outputs.ready == 'true' }}
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          for arch in amd64 aarch64; do
+            image="${REGISTRY}/${IMAGE_NAME}/${arch}"
+            docker buildx imagetools create -t "${image}:latest" "${image}:${version}"
+          done

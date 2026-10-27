@@ -17,14 +17,14 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - name: Version in config.yaml muss zum Tag passen
+      # Der Tag gibt die Version vor; auf main schreibt sie Release-Docker,
+      # sobald die Images liegen. Das ZIP bekommt sie hier schon.
+      - name: Version aus dem Tag übernehmen
+        env:
+          PRERELEASE: ${{ github.event.release.prerelease && '--prerelease' || '' }}
         run: |
-          tag="${GITHUB_REF_NAME#v}"
-          cfg="$(grep -m1 '^version:' dnsmith/config.yaml | awk '{gsub(/["[:space:]]/, "", $2); print $2}')"
-          if [ "$cfg" != "$tag" ]; then
-            echo "::error::Tag ${GITHUB_REF_NAME} passt nicht zu version \"${cfg}\" in dnsmith/config.yaml. Erst Version anheben und auf main pushen, dann das Release neu anlegen."
-            exit 1
-          fi
+          python3 tools/set_version.py "${GITHUB_REF_NAME}" --check-newer $PRERELEASE
+          python3 tools/set_version.py "${GITHUB_REF_NAME}" $PRERELEASE
 
       - name: ZIP aus dnsmith/ bauen
         run: |
