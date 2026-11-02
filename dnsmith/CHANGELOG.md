@@ -2,6 +2,13 @@
 
 Alle nennenswerten Änderungen an diesem Projekt werden hier festgehalten.
 
+## [Unveröffentlicht]
+
+### Verbessert
+- **Aktualisierte Bausteine:** Die Mindestversionen von starlette (1.10),
+  pydantic (2.14) und cryptography (50.0.2) sind angehoben, damit das Image mit
+  den aktuellen Bibliotheken gebaut wird. In der Oberfläche ändert sich nichts.
+
 ## [0.1.4] - 2026-10-26
 
 ### Verbessert
