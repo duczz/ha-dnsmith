@@ -2,7 +2,7 @@
 
 Alle nennenswerten Änderungen an diesem Projekt werden hier festgehalten.
 
-## [Unveröffentlicht]
+## [0.1.5] - 2026-11-02
 
 ### Verbessert
 - **Aktualisierte Bausteine:** Die Mindestversionen von starlette (1.10),
