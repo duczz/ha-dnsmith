@@ -1,0 +1,100 @@
+name: Release vorbereiten
+
+# Von Hand zu starten (Actions → "Release vorbereiten" → Run workflow).
+#
+# Legt den Release-Commit an: Version in config.yaml und __init__.py gesetzt,
+# `## [Unveröffentlicht]` im CHANGELOG zu `## [X.Y.Z] - <Datum>` datiert. Der
+# Commit liegt auf dem Zweig release/X.Y.Z, NICHT auf main: Home Assistant liest
+# main und böte sonst ein Update an, bevor es das Image gibt (2026-10-26). Dazu
+# ein Entwurf `vX.Y.Z`, dessen Ziel genau dieser Commit ist. Veröffentlicht
+# wird der Entwurf von Hand: der Tag entsteht auf dem Release-Commit, Tag, Image
+# und ZIP tragen Version und Datum. Release-Docker bringt den Commit auf main,
+# sobald beide Images liegen (tools/release_to_main.sh).
+#
+# Ein Release, das dieser Workflow mit GITHUB_TOKEN anlegt, startet keine
+# weiteren Workflows (GitHub-Regel). Darum bleibt es ein Entwurf: erst dein
+# Klick auf "Publish release" löst Release-Docker und Release-Asset aus.
+#
+# "Nur zeigen" macht alles bis auf Pushen und Entwurf und gibt den Diff und den
+# Entwurfstext aus - zum Ausprobieren, ohne etwas anzulegen.
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Neue Version X.Y.Z (ohne v)"
+        required: true
+        type: string
+      dry_run:
+        description: "Nur zeigen, nichts pushen und keinen Entwurf anlegen"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  vorbereiten:
+    runs-on: ubuntu-latest
+    env:
+      VERSION: ${{ inputs.version }}
+      DRY_RUN: ${{ inputs.dry_run }}
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: main
+
+      - name: Version prüfen
+        run: |
+          if ! [[ "${VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::'${VERSION}' ist keine Version (erwartet X.Y.Z, ohne v)"
+            exit 1
+          fi
+          if git ls-remote --exit-code --heads origin "release/${VERSION}" >/dev/null; then
+            echo "::error::Zweig release/${VERSION} gibt es schon. Eine Version nie zweimal vorbereiten: erst klären, was daraus wurde."
+            exit 1
+          fi
+          if git ls-remote --exit-code --tags origin "v${VERSION}" >/dev/null; then
+            echo "::error::Den Tag v${VERSION} gibt es schon."
+            exit 1
+          fi
+          if gh release view "v${VERSION}" >/dev/null 2>&1; then
+            echo "::error::Ein Release v${VERSION} gibt es schon (auch ein Entwurf)."
+            exit 1
+          fi
+
+      - name: Version setzen und CHANGELOG datieren
+        run: |
+          python3 tools/set_version.py "${VERSION}" --check-newer
+          python3 tools/set_version.py "${VERSION}" --require-unreleased
+          git --no-pager diff
+
+      - name: Entwurfstext aus dem CHANGELOG
+        run: |
+          {
+            echo "## 🚀 What's New: TITEL EINTRAGEN"
+            echo
+            echo "KURZE EINLEITUNG EINTRAGEN"
+            echo
+            awk -v h="## [${VERSION}]" 'index($0, h) == 1 { f = 1; next } f && /^## \[/ { exit } f' dnsmith/CHANGELOG.md
+            echo
+            echo "📄 Vollständiges Änderungsprotokoll: [CHANGELOG.md](https://github.com/${GH_REPO}/blob/main/dnsmith/CHANGELOG.md)"
+            echo "📖 Doku: [README.md](https://github.com/${GH_REPO}/blob/main/README.md)"
+          } > "${RUNNER_TEMP}/notes.md"
+          cat "${RUNNER_TEMP}/notes.md"
+
+      - name: Release-Commit auf release/X.Y.Z und Entwurf anlegen
+        if: ${{ !inputs.dry_run }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -c "release/${VERSION}"
+          git commit -qam "DNSmith ${VERSION}: Version gesetzt"
+          sha="$(git rev-parse HEAD)"
+          git push origin "release/${VERSION}"
+          gh release create "v${VERSION}" --draft --title "v${VERSION}" \
+            --target "${sha}" --notes-file "${RUNNER_TEMP}/notes.md"
+          echo "Entwurf v${VERSION} auf ${sha}. Text ergänzen, dann veröffentlichen." >> "$GITHUB_STEP_SUMMARY"

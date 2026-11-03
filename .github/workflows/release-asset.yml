@@ -17,14 +17,17 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      # Der Tag gibt die Version vor; auf main schreibt sie Release-Docker,
-      # sobald die Images liegen. Das ZIP bekommt sie hier schon.
-      - name: Version aus dem Tag übernehmen
-        env:
-          PRERELEASE: ${{ github.event.release.prerelease && '--prerelease' || '' }}
+      # Der Tag liegt auf dem Release-Commit von "Release vorbereiten": Version
+      # und datierter CHANGELOG stehen schon in den Dateien, das ZIP bekommt sie
+      # also so, wie sie im Tag stehen. Auf main bringt sie Release-Docker,
+      # sobald die Images liegen. Geschrieben wird hier nichts. --allow-same: ein
+      # "Re-run failed jobs" nach dem Abschluss von Release-Docker findet main
+      # schon auf der Version; ein Image überschreibt dieser Job nie.
+      - name: Tag muss ein Release-Commit sein
         run: |
-          python3 tools/set_version.py "${GITHUB_REF_NAME}" --check-newer $PRERELEASE
-          python3 tools/set_version.py "${GITHUB_REF_NAME}" $PRERELEASE
+          git fetch --depth=1 origin +refs/heads/main:refs/remotes/origin/main
+          git show origin/main:dnsmith/config.yaml > "${RUNNER_TEMP}/main-config.yaml"
+          python3 tools/set_version.py "${GITHUB_REF_NAME}" --verify --against "${RUNNER_TEMP}/main-config.yaml" --allow-same
 
       - name: ZIP aus dnsmith/ bauen
         run: |
